@@ -67,30 +67,22 @@ chmod +x scripts/run_acceptance.sh
 
 Antes de generar una ISO para uso real, revisar especialmente SSH: los perfiles nominales Equipo de Oficina y Estación de Trabajo heredan SSH habilitado de sus JSON originales.
 
-## Integrar la aplicación completa alpha.4
+## Incorporar el código fuente completo desde Fedora
 
-**Estado de la rama `main`:** contiene el parche de Etapa 7 y la documentación; el árbol fuente completo todavía debe incorporarse desde el paquete integral. Para hacerlo sin reemplazar la licencia ni los antecedentes del repositorio:
+Este repositorio contiene el overlay de Etapa 7 y el importador que permite reconstruir la publicación completa desde la carpeta fuente alpha.3 / Etapa 6 que ya tengas en tu equipo. **No necesitás descargar el ZIP de ChatGPT.**
 
-1. Descargá el paquete `Creador-Personalizado-3.0.0-alpha.4-Full-GPLv3.zip` preparado para esta publicación.
-2. Cloná este repositorio y descargá el importador [`import-full-app.sh`](import-full-app.sh) (o usá el que ya está en la raíz del clon).
-3. Desde la carpeta del clon ejecutá:
-
-```bash
-chmod +x import-full-app.sh
-./import-full-app.sh /ruta/al/Creador-Personalizado-3.0.0-alpha.4-Full-GPLv3.zip
-```
-
-El script comprueba que el destino sea este repositorio, que estés en la rama `main` y que no haya cambios locales pendientes. Copia el proyecto completo en la raíz, preserva el aviso GPL y el overlay histórico, prepara un commit y lo publica con `git push`. Si falla una comprobación, se detiene antes de hacer el commit.
-
-## Incorporar el código completo sin descargar el ZIP de ChatGPT
-
-Si ya tenés en Fedora la carpeta fuente de la Etapa 6 que usaste para las pruebas, podés publicar la aplicación completa directamente desde esa carpeta:
+1. Asegurate de tener la carpeta fuente local (la utilizada anteriormente para las pruebas en Fedora).
+2. Actualizá el clon y ejecutá el importador:
 
 ```bash
+cd ~/Creador-Personalizado-Etapa7
+git restore -- import-full-app.sh 2>/dev/null || true
 git pull --ff-only origin main
 bash import-full-app-from-local-source.sh ~/Descargas/Creador-Personalizado-3.0.0-alpha.3
 ```
 
-El importador copia el árbol fuente a una zona temporal, aplica el overlay GPLv3 de Etapa 7, conserva los avisos de licencia y los archivos históricos, y luego crea el commit y hace `git push`. No necesita descargar el ZIP generado en ChatGPT. Si la carpeta fuente está en otra ubicación, pasá esa ruta como argumento.
+Si la carpeta fuente está en otra ubicación, reemplazá la última ruta por la correcta. Debe contener `main.py`, `pyproject.toml`, `requirements.txt`, `core/`, `gui/` y `profiles/`.
 
-La carpeta local debe contener `main.py`, `pyproject.toml`, `requirements.txt`, `core/`, `gui/` y `profiles/`. El importador excluye entornos virtuales, cachés, reportes de pruebas, compilaciones y archivos ISO/RAW.
+El importador copia el árbol fuente a una zona temporal, aplica el overlay GPLv3 de Etapa 7, conserva los avisos de licencia y el historial del repositorio, y luego crea el commit y ejecuta `git push origin main`. Excluye entornos virtuales, cachés, reportes de pruebas, compilaciones y archivos ISO/RAW.
+
+Si Git solicita autenticación para el `push`, completá el inicio de sesión de GitHub en la terminal. El código se publicará en la raíz de este mismo repositorio.
