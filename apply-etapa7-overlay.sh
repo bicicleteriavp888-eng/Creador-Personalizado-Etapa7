@@ -47,6 +47,8 @@ gui/tab_meta.py
 gui/custom_distro.py
 tests/test_project_store.py
 tests/test_branding_3.py
+LICENSE
+LICENSING-NOTICE.md
 CHANGELOG-ETAPA7.md
 INFORME_ETAPA7.md
 documentation/ETAPA7_GESTION_PROYECTOS.md
