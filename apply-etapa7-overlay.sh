@@ -40,10 +40,16 @@ while IFS= read -r rel; do
 done <<'EOF'
 main.py
 pyproject.toml
+core/projects/__init__.py
+core/projects/catalog.py
+core/projects/manager.py
 gui/tab_meta.py
 gui/custom_distro.py
 tests/test_project_store.py
 tests/test_branding_3.py
+CHANGELOG-ETAPA7.md
+INFORME_ETAPA7.md
+documentation/ETAPA7_GESTION_PROYECTOS.md
 EOF
 
 tar --no-same-owner -xzf "$ARCHIVE" -C "$DEST"
