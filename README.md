@@ -81,3 +81,16 @@ chmod +x import-full-app.sh
 ```
 
 El script comprueba que el destino sea este repositorio, que estés en la rama `main` y que no haya cambios locales pendientes. Copia el proyecto completo en la raíz, preserva el aviso GPL y el overlay histórico, prepara un commit y lo publica con `git push`. Si falla una comprobación, se detiene antes de hacer el commit.
+
+## Incorporar el código completo sin descargar el ZIP de ChatGPT
+
+Si ya tenés en Fedora la carpeta fuente de la Etapa 6 que usaste para las pruebas, podés publicar la aplicación completa directamente desde esa carpeta:
+
+```bash
+git pull --ff-only origin main
+bash import-full-app-from-local-source.sh ~/Descargas/Creador-Personalizado-3.0.0-alpha.3
+```
+
+El importador copia el árbol fuente a una zona temporal, aplica el overlay GPLv3 de Etapa 7, conserva los avisos de licencia y los archivos históricos, y luego crea el commit y hace `git push`. No necesita descargar el ZIP generado en ChatGPT. Si la carpeta fuente está en otra ubicación, pasá esa ruta como argumento.
+
+La carpeta local debe contener `main.py`, `pyproject.toml`, `requirements.txt`, `core/`, `gui/` y `profiles/`. El importador excluye entornos virtuales, cachés, reportes de pruebas, compilaciones y archivos ISO/RAW.
