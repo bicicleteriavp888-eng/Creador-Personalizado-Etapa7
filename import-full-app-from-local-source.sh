@@ -70,8 +70,12 @@ for required in main.py pyproject.toml requirements.txt core gui profiles; do
   }
 done
 
-echo "[2/5] Aplicando Etapa 7 y la gestión de proyectos..."
-bash "$REPO_DIR/apply-etapa7-overlay.sh" "$STAGE"
+if [[ -f "$STAGE/core/projects/manager.py" && -f "$STAGE/core/projects/catalog.py" ]]; then
+  echo "[2/5] Etapa 7 ya está aplicada en el árbol fuente; no se repetirá."
+else
+  echo "[2/5] Aplicando Etapa 7 y la gestión de proyectos..."
+  bash "$REPO_DIR/apply-etapa7-overlay.sh" "$STAGE"
+fi
 
 echo "[3/5] Conservando avisos y archivos históricos del repositorio..."
 PRESERVE="$TMP/preserve"
