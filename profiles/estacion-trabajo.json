@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "profile_name": "Estación de Trabajo",
+  "description": "Estación de desarrollo y operaciones con herramientas técnicas completas y acceso administrativo seguro.",
+  "config": {
+    "iso_name": "TallerArgOS-EstacionTrabajo",
+    "version": "1.0",
+    "developer": "TallerArg",
+    "release": "44",
+    "boot_mode": "uefi",
+    "app_mode": "firefox",
+    "app_url": "https://developer.fedoraproject.org",
+    "multi_app": true,
+    "enable_ssh": true,
+    "enable_firewall": true
+  }
+}

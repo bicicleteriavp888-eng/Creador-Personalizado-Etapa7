@@ -9,7 +9,7 @@ Cada proyecto tiene identidad, modalidad, configuración y recursos propios. La 
 La creación permite elegir los cinco perfiles nominales que ya estaban versionados en `profiles/*.json`. Sus URL, modo de arranque, modalidad multiventana y opciones de firewall/SSH se toman de esos archivos. También se pueden elegir las plantillas generales del catálogo.
 
 | Perfil nominal | Proyecto / motor | Precarga específica |
-|---|---|---|
+|---|---|---|---|
 | `terminal-atencion` | Terminal de Atención / Kiosco | Chromium, `https://atencion.tallerarg.org`, firewall activo, SSH desactivado y una sola ventana |
 | `kiosco-navegador` | Kiosco Navegador / Kiosco | Chromium, `https://www.tallerarg.org`, firewall activo y una sola ventana |
 | `kiosco-multiventana` | Kiosco Multiventana / Kiosco | Chromium, `https://www.tallerarg.org`, Sway con segunda aplicación y firewall activo |

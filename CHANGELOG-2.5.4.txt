@@ -1,0 +1,26 @@
+Creador-kiosk 2.5.4 - splash también en el menú de arranque
+
+- La imagen configurada en Apariencia se copia al staging del medio ISO.
+- BIOS/Legacy: se configura MENU BACKGROUND en isolinux.cfg y se asegura
+  vesamenu.c32 cuando el menú aún no lo declara.
+- UEFI: se intenta activar gfxterm y cargar el fondo PNG en GRUB. Los módulos
+  gráficos se cargan condicionalmente para conservar la consola como fallback.
+- La imagen continúa utilizándose como tema Plymouth durante la carga del SO.
+- Sin imagen seleccionada no se modifica el menú de arranque.
+- Se añadieron pruebas unitarias del script BIOS/UEFI y de su idempotencia.
+- No se modificó core/desktops ni el motor Fedora Desktop.
+
+Limitación de validación: no se generó una ISO Fedora 44 en este entorno ni
+se probó el arranque físico en firmware BIOS/UEFI. La imagen BIOS se conserva
+en sus dimensiones originales; para Syslinux se recomienda 640x480.
+
+Gestor de software - primera etapa de resolución transaccional:
+- Se agrega una simulación de instalación DNF5 con --assumeno para paquetes
+  individuales, metapaquetes RPM (tratados como paquetes normales) y grupos
+  Comps seleccionados.
+- La simulación muestra la salida completa del solver, incluidos paquetes
+  adicionales, resumen y errores de dependencias/conflictos.
+- No se ejecuta ninguna instalación ni eliminación en el equipo anfitrión.
+- La construcción de la ISO conserva su resolución propia en el entorno destino.
+- La simulación previa utiliza repositorios y estado de paquetes del anfitrión;
+  puede diferir del entorno de compilación y no sustituye su validación.

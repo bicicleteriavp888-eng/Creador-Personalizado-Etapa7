@@ -1,0 +1,44 @@
+{
+  "name": "Bolt",
+  "description": "A static site seed built on Grunt",
+  "version": "0.0.6",
+  "author": "Adam Argyle",
+  "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/argyleink/Bolt"
+  },
+  "devDependencies": {
+    "autoprefixer-stylus": "^0.11.0",
+    "grunt": "^1.0.1",
+    "grunt-asciify": "^0.2.2",
+    "grunt-browser-sync": "^2.2.0",
+    "grunt-bump": "^0.8.0",
+    "grunt-contrib-clean": "^1.0.0",
+    "grunt-contrib-connect": "^1.0.1",
+    "grunt-contrib-copy": "^1.0.0",
+    "grunt-contrib-pug": "^1.0.0",
+    "grunt-contrib-stylus": "^1.2.0",
+    "grunt-contrib-uglify": "argyleink/grunt-contrib-uglify",
+    "grunt-contrib-watch": "^1.0.0",
+    "grunt-csso": "^2.0.1",
+    "grunt-image": "^2.2.2",
+    "grunt-manifest": "^0.4.4",
+    "grunt-newer": "^1.1.2",
+    "grunt-notify": "^0.4.5",
+    "grunt-purifycss": "^0.1.1",
+    "grunt-shell": "^2.0.0",
+    "jit-grunt": "^0.10.0",
+    "load-grunt-configs": "^1.0.0",
+    "pug-inheritance": "^2.0.0",
+    "quaff": "^2.0.0",
+    "time-grunt": "^1.3.0"
+  },
+  "skipInheritances": [
+    "node_modules"
+  ],
+  "dependencies": {
+    "coffeescript": "^2.7.1"
+  }
+}

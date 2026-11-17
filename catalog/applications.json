@@ -1,0 +1,80 @@
+{
+  "categories": [
+    "Navegadores",
+    "Multimedia",
+    "Ofimática",
+    "Utilidades",
+    "Herramientas administrativas",
+    "Seguridad",
+    "Desarrollo",
+    "Accesibilidad"
+  ],
+  "applications": [
+    {
+      "id": "chromium",
+      "name": "Chromium",
+      "category": "Navegadores",
+      "description": "Navegador web de código abierto basado en Blink/V8.",
+      "package": "chromium",
+      "repository": "fedora",
+      "architecture": "x86_64",
+      "version": "latest",
+      "dependencies": ["glibc", "nss"]
+    },
+    {
+      "id": "firefox",
+      "name": "Mozilla Firefox",
+      "category": "Navegadores",
+      "description": "Navegador web libre y enfocado en la privacidad y estándares abiertos.",
+      "package": "firefox",
+      "repository": "fedora",
+      "architecture": "x86_64",
+      "version": "latest",
+      "dependencies": ["glibc", "gtk3"]
+    },
+    {
+      "id": "vlc",
+      "name": "VLC Media Player",
+      "category": "Multimedia",
+      "description": "Reproductor multimedia versátil para diversos formatos de audio y video.",
+      "package": "vlc",
+      "repository": "rpmfusion-free",
+      "architecture": "x86_64",
+      "version": "latest",
+      "dependencies": ["libvlccore"]
+    },
+    {
+      "id": "libreoffice",
+      "name": "LibreOffice Writer",
+      "category": "Ofimática",
+      "description": "Procesador de textos completo de la suite libre ofimática.",
+      "package": "libreoffice-writer",
+      "repository": "fedora",
+      "architecture": "x86_64",
+      "version": "latest",
+      "dependencies": ["libreoffice-core"]
+    },
+    {
+      "id": "htop",
+      "name": "Htop",
+      "category": "Utilidades",
+      "description": "Visor interactivo de procesos en modo texto.",
+      "package": "htop",
+      "repository": "fedora",
+      "architecture": "x86_64",
+      "version": "latest",
+      "dependencies": ["ncurses"]
+    },
+    {
+      "id": "firewalld",
+      "name": "FirewallD",
+      "category": "Seguridad",
+      "description": "Gestor dinámico de cortafuegos para Linux.",
+      "package": "firewalld",
+      "repository": "fedora",
+      "architecture": "x86_64",
+      "version": "latest",
+      "dependencies": ["iptables"]
+    }
+  ]
+}

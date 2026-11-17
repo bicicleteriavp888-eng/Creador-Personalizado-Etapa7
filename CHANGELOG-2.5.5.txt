@@ -1,0 +1,23 @@
+Creador-kiosk 2.5.5 - gestor de software, etapa 1
+
+- Se agrega "Resolver dependencias / Simular" en el asistente de creación de
+  distribuciones personalizadas.
+- El motor usa DNF5 install --assumeno con los paquetes individuales,
+  metapaquetes RPM y grupos Comps seleccionados. DNF5 calcula dependencias
+  transitivas, informa conflictos y muestra el resumen de la transacción.
+- No se usa --skip-broken ni --allowerasing: no se ocultan paquetes omitidos
+  ni se autorizan eliminaciones automáticas para resolver conflictos.
+- La simulación no instala ni elimina paquetes en el sistema anfitrión.
+- Se puede consultar el contenido de cada grupo Comps: paquetes obligatorios,
+  predeterminados, opcionales y condicionales.
+- La construcción de la ISO mantiene su propia resolución dentro del entorno
+  Fedora destino; la simulación en el anfitrión es una previsualización y puede
+  diferir si cambian repositorios, versión, arquitectura o estado del sistema.
+- No se modificaron los motores de construcción Fedora Desktop ni Kiosco.
+
+Validación ejecutada:
+- py_compile correcto para core/repositories/dnf_query.py y gui/custom_distro.py.
+- 28 pruebas aprobadas en tests/test_dnf_query.py y tests/test_software_policy.py.
+- La suite completa no pudo recolectarse porque el entorno de validación no
+  tiene PySide6; fallaron imports de módulos GUI/constructor por esa ausencia.
+- No se ejecutó DNF5 real ni se generó una ISO en este entorno.

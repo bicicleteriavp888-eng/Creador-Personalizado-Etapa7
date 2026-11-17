@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Creador Personalizado
+GenericName=Constructor de distribuciones Fedora
+Comment=Creá imágenes Fedora de escritorio o kiosco
+Exec=creador-personalizado
+Icon=creador-personalizado
+Terminal=false
+Categories=System;Settings;
+StartupNotify=true

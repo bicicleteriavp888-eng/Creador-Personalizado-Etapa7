@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "profile_name": "Equipo de Oficina",
+  "description": "Perfil de estación de trabajo administrativa con herramientas ofimáticas y entorno de escritorio estándar.",
+  "config": {
+    "iso_name": "TallerArgOS-Oficina",
+    "version": "1.0",
+    "developer": "TallerArg",
+    "release": "44",
+    "boot_mode": "uefi",
+    "app_mode": "firefox",
+    "app_url": "https://www.libreoffice.org",
+    "multi_app": false,
+    "enable_ssh": true,
+    "enable_firewall": true
+  }
+}

@@ -1,0 +1,6 @@
+# GUI y backend de compilacion.
+# Requiere PySide6 >= 6.7 por el signal checkStateChanged de QCheckBox.
+PySide6>=6.7
+
+# Tests
+pytest

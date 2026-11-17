@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "profile_name": "Terminal de Atención",
+  "description": "Terminal de atención al público segura, bloqueada y con acceso restringido a portal web institucional.",
+  "config": {
+    "iso_name": "TallerArgOS-TerminalAtencion",
+    "version": "1.0",
+    "developer": "TallerArg",
+    "release": "44",
+    "boot_mode": "uefi",
+    "app_mode": "chromium",
+    "app_url": "https://atencion.tallerarg.org",
+    "multi_app": false,
+    "enable_ssh": false,
+    "enable_firewall": true
+  }
+}

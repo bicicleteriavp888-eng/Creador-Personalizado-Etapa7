@@ -1,0 +1,10 @@
+include README.md
+recursive-include core *.py
+recursive-include gui *.py
+recursive-include profiles *.json
+recursive-include catalog *.json
+recursive-include vendor *
+recursive-include documentation *.md
+recursive-include scripts *.py
+recursive-include packaging *.sh *.desktop
+recursive-include scripts *.sh

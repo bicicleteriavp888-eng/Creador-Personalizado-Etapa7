@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "creador-personalizado"
+version = "3.0.0a4"
+description = "Constructor profesional de distribuciones Fedora personalizadas"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.7"]
+authors = [{name = "Proyecto Creador Personalizado"}]
+
+[project.scripts]
+creador-personalizado = "main:main"
+creador-kiosk = "main:main"  # Alias de compatibilidad
+creador-personalizado-validate-iso = "scripts.validate_iso:main"
+creador-kiosk-validate-iso = "scripts.validate_iso:main"  # Alias heredado
+
+[tool.setuptools]
+py-modules = ["main"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "gui*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools.data-files]
+"share/creador-personalizado/profiles" = ["profiles/*.json"]
+"share/creador-personalizado/catalog" = ["catalog/*.json"]
+"share/doc/creador-personalizado" = ["README.md", "Prompt_Maestro_Creador-kiosk_2.1.txt"]
+"share/doc/creador-personalizado/documentation" = ["documentation/*.md"]

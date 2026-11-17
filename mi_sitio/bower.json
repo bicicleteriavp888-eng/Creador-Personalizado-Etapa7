@@ -1,0 +1,16 @@
+{
+  "name": "Bolt",
+  "version": "1",
+  "homepage": "https://github.com/argyleink/Bolt",
+  "authors": [
+    "Adam Argyle <atom@argyleink.com>"
+  ],
+  "description": "Open sourced components",
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "app/js/bower"
+  ],
+  "dependencies": {}
+}

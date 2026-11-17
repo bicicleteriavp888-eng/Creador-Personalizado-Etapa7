@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Creador-kiosk
+Comment=Constructor de distribuciones Linux de kiosco
+Exec=/usr/bin/creador-kiosk
+Icon=applications-system
+Terminal=false
+Categories=System;Utility;

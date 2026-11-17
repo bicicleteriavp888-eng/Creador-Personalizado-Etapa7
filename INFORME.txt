@@ -1,0 +1,1127 @@
+NOTA DE VERSION: este informe describe el estado anterior a la actualizacion del 12/11/2026. Para los valores predeterminados vigentes, las mejoras de seguridad, las pruebas y los pendientes, consultar INFORME_ACTUALIZACION.md. En particular, SSH ahora esta deshabilitado por defecto y SELinux se configura en enforcing.
+
+================================================================================
+ INFORME TECNICO DEL SOFTWARE "Creador-kiosk"
+================================================================================
+ Ruta analizada : /home/sergio/Creador-kiosk
+ Fecha          : 2026-11-12
+ Rama / commit  : main / d0da3f4 ("Nombre del producto TallerArgOS Fedora Kiosk
+                  en el instalador")
+ Lenguaje       : Python 3 (PySide6 / Qt6) + CoffeeScript/Node solo en mi_sitio
+ Proposito      : generar ISOs "kiosco" de Fedora 44 con Wayland (Cage o Sway)
+                  de forma grafica, y escribirlas a un USB con dd.
+
+Este documento describe que hace el programa, como se organiza, y para que sirve
+cada archivo y cada funcion del codigo propio. No se describen archivo por
+archivo las dependencias de terceros (mi_sitio/node_modules), los bytecodes
+(__pycache__) ni los artefactos de build/test.
+
+--------------------------------------------------------------------------------
+ 1. QUE ES Y QUE GENERA
+--------------------------------------------------------------------------------
+Creador-kiosk es una aplicacion de escritorio (PySide6) que arma un archivo
+Kickstart dinamico y lo entrega a "livecd-creator". El resultado es una ISO
+hibrida (BIOS + UEFI) de Fedora 44 que arranca directo en una aplicacion de
+kiosco (Chromium, Firefox o una app propia) o, opcionalmente, en una pantalla
+de login LightDM con Elephant Greeter.
+
+Funcionalidades principales:
+  - App kiosco: Chromium, Firefox, Firefox en espanol (es-AR) o aplicacion
+    local (binario, script, carpeta o RPM; los RPM se publican como repo local
+    para que dnf resuelva dependencias).
+  - Modo multiventana con Sway: app principal en workspace 1 y segunda app en
+    el workspace 2; cambio con Super+1/Super+2/Super+Tab o Alt+1/Alt+2/Alt+Tab.
+  - Configurador de red WiFi en el kiosco con Alt+9 (nm-connection-editor).
+  - Nombre de producto configurable que reemplaza "Fedora Linux" en Anaconda y
+    en el sistema instalado, sin romper ID/VERSION_ID de Fedora.
+  - Splash de arranque personalizado (Plymouth) y banner/texto de bienvenida
+    del instalador (Anaconda).
+  - Pantalla de inicio opcional (LightDM + Elephant Greeter, Wayland/Cage).
+  - Entrada de arranque "Instalar en disco (Anaconda)".
+  - Escritura de la ISO a USB con dd desde la GUI, con validaciones de
+    seguridad.
+  - Cancelacion de una compilacion en curso (SIGTERM/SIGKILL al arbol).
+  - La GUI recuerda la ultima configuracion (QSettings); nunca guarda la
+    contrasena.
+
+Usuario generado en la ISO: kioskuser (grupos wheel, video, render, input,
+audio, seat). root bloqueado. SSH habilitado. Firewall opcional (solo SSH).
+
+--------------------------------------------------------------------------------
+ 2. ARQUITECTURA Y FLUJO DE TRABAJO
+--------------------------------------------------------------------------------
+  GUI (PySide6)                 Backend                      Sistema host
+  -------------                 -------                      ------------
+  main.py  ------------------>  core/builder.py  --------->  livecd-creator
+   |  (QSettings)                    |                        (dnf/chroot)
+   |                                 +--> openssl (hash SHA512)
+   |                                 +--> rpm / createrepo_c
+   |
+   +--> core/usb.py  --------------------------------------->  lsblk / dd
+   |        |
+   |        +--> core/privileges.py  ----------------------->  sudo -n / pkexec
+   |
+   +--> gui/tab_*.py (6 solapas)
+            |
+            +--> gui/images.py (seleccion/conversion de imagenes)
+
+Flujo de compilacion (KioskISOBuilder.build):
+  1. Verificacion previa: livecd-creator y openssl presentes; deteccion de
+     privilegios; comprobacion del repositorio (mirror/mirrorlist).
+  2. Preparacion de directorios (/var/tmp/creador-kiosk y cache de RPMs).
+  3. Limpieza de restos de compilaciones anteriores.
+  4. Chequeo de espacio libre (12 GiB) y de que el arbol no este en tmpfs.
+  5. Hash SHA512 de la contrasena de kioskuser con openssl.
+  6. Generacion del Kickstart (kiosk.ks, permisos 0600).
+  7. Ejecucion de livecd-creator con salida en vivo, barra de progreso,
+     "latido" cada 20 s y cancelacion por senal.
+  8. Localizacion/publicacion de la ISO en la carpeta de salida.
+  9. La GUI ofrece la ruta de la ISO a la solapa de escritura a USB.
+
+--------------------------------------------------------------------------------
+ 3. MAPA DE DIRECTORIOS
+--------------------------------------------------------------------------------
+  main.py                 Ventana principal, worker de compilacion, QSettings.
+  requirements.txt        Dependencias Python (PySide6 >= 6.7, pytest).
+  README.md               Documentacion de uso y seguridad.
+  .gitignore              Excluye bytecode, caches, ISOs, node_modules, builds.
+  core/                   Backend sin GUI: builder, usb, privilegios.
+  gui/                    Una solapa por modulo (mixins) + campo de imagen.
+  tests/                  Pruebas pytest del backend.
+  vendor/                 LightDM Elephant Greeter embebido (MIT).
+  mi_sitio/               Plantilla de sitio estatico "Bolt" (Grunt/Pug/Stylus).
+
+  Directorios NO propios (generados o de terceros):
+  .git/                   Historial Git.
+  __pycache__/            Bytecode Python de main.py.
+  core/__pycache__/       Bytecode del backend.
+  gui/__pycache__/        Bytecode de la GUI.
+  tests/__pycache__/      Bytecode de los tests.
+  .pytest_cache/          Cache de ejecuciones de pytest.
+  mi_sitio/node_modules/  ~600 paquetes npm de la plantilla Bolt.
+  mi_sitio/build/         Salida generada por Grunt (dev y www).
+  *.iso                   ISOs generadas (ignoradas por git).
+
+Nota: core/ y gui/ no tienen __init__.py en core/ (Python los trata como
+paquetes de espacio de nombres); gui/__init__.py solo contiene un docstring.
+
+================================================================================
+ 4. DESCRIPCION ARCHIVO POR ARCHIVO Y FUNCION POR FUNCION
+================================================================================
+
+================================================================================
+ 4.1  RAIZ DEL PROYECTO
+================================================================================
+
+--------------------------------------------------------------------------------
+ main.py  (470 lineas) - Punto de entrada y ventana principal
+--------------------------------------------------------------------------------
+Proposito: crear la QApplication, construir la ventana con las 6 solapas
+(mezclando los mixins de gui/), validar los datos del formulario, lanzar la
+compilacion en un hilo aparte y persistir la configuracion con QSettings.
+
+Constantes:
+  SETTINGS_ORG = "CreadorKiosk"   Organizacion usada por QSettings.
+  SETTINGS_APP = "Creador-kiosk"  Nombre de la aplicacion en QSettings.
+
+Funciones:
+
+  _set_combo_by_data(combo, data)
+      Selecciona en un QComboBox el item cuyo userData coincide con "data".
+      Se usa al restaurar la configuracion guardada. Si data es None no hace
+      nada.
+
+  _setting_bool(settings, key, default)
+      Lee un booleano de QSettings de forma tolerante: el backend INI puede
+      devolver "true"/"1"/"yes"/"on" como texto. Devuelve el valor por defecto
+      si la clave no existe.
+
+Clase BuilderWorker(QThread):
+  Hilo que ejecuta la compilacion para no congelar la GUI.
+  Senales:
+      log_signal(str)        Lineas de log hacia la solapa 5.
+      progress_signal(int)   Porcentaje de avance (0-100).
+      iso_signal(str)        Ruta de la ISO terminada.
+      finished_signal(bool)  Exito o fallo de la compilacion.
+  __init__(config_data)
+      Guarda la configuracion y crea un threading.Event (cancel_event) que la
+      GUI activa para abortar el build.
+  run()
+      Crea KioskISOBuilder, conecta sus senales, ejecuta build(), captura
+      cualquier excepcion inesperada (para no dejar el boton colgado), emite
+      la ruta de la ISO si hubo exito y emite finished_signal.
+
+Clase KioskBuilderGUI(MetaTabMixin, AestheticTabMixin, SoftwareTabMixin,
+                      InstallerTabMixin, BuildTabMixin, UsbTabMixin,
+                      QMainWindow):
+  Ventana principal. La logica de cada solapa vive en su mixin.
+
+  __init__()
+      Define titulo y tamano, estado inicial (custom_app_path, worker,
+      usb_worker), crea el QTabWidget, inicializa las 6 solapas en orden y
+      restaura la configuracion guardada.
+
+  on_iso_ready(path)
+      Recibe la ISO recien creada: la escribe en el campo de la solapa USB y
+      avisa en el log que esta lista para escribir.
+
+  start_build_process()
+      Valida TODO el formulario antes de compilar:
+        - nombre de ISO obligatorio;
+        - nombre de producto de una sola linea, sin comillas dobles, "\" ni "$";
+        - contrasena de kioskuser obligatoria;
+        - nombres de "Paquetes adicionales" validos (invalid_package_names);
+        - imagenes existentes y dentro de limite (Plymouth/banner 4 MiB,
+          greeter 8 MiB);
+        - app local existente y URL obligatoria en modos de navegador;
+        - segunda app (URL, comando de una linea o archivo local) en
+          multiventana.
+      Arma el diccionario "config", bloquea el boton de compilar, habilita
+      Cancelar, limpia logs/progreso, guarda la configuracion y arranca
+      BuilderWorker.
+
+  _load_settings()
+      Restaura la ultima configuracion desde QSettings. En la primera
+      ejecucion intenta autoseleccionar un RPM local de TallerArg (ruta
+      hardcodeada /home/sergio/TallerArg_v1.8.1/tallerarg-1.8.2-1.fc44.x86_64.rpm)
+      si existe. Restaura textos, combos, casillas e imagenes solo si el
+      archivo sigue existiendo. La contrasena nunca se restaura.
+
+  _save_settings()
+      Guarda en QSettings todos los campos de la GUI (incluidas rutas de
+      imagenes), excepto la contrasena.
+
+  closeEvent(event)
+      Impide cerrar la ventana si hay una escritura USB o una compilacion en
+      curso; en caso contrario guarda la configuracion y cierra.
+
+  Bloque if __name__ == "__main__": crea QApplication, muestra la ventana y
+  entra en el bucle de eventos.
+
+--------------------------------------------------------------------------------
+ requirements.txt  (4 lineas)
+--------------------------------------------------------------------------------
+Dependencias: PySide6 >= 6.7 (por la senal checkStateChanged de QCheckBox) y
+pytest para las pruebas. No fija versiones exactas.
+
+--------------------------------------------------------------------------------
+ README.md
+--------------------------------------------------------------------------------
+Documentacion funcional: caracteristicas, requisitos del host, uso, variables
+de entorno, credenciales del sistema generado, estructura del proyecto, tests y
+consideraciones de seguridad.
+
+--------------------------------------------------------------------------------
+ .gitignore
+--------------------------------------------------------------------------------
+Exclusiones de Git: bytecode/__pycache__, caches de pytest e imagenes, ISOs,
+node_modules, bower_components, builds de mi_sitio, archivos de sistema/editor.
+
+================================================================================
+ 4.2  core/  - BACKEND (sin dependencia de la interfaz)
+================================================================================
+
+--------------------------------------------------------------------------------
+ core/privileges.py  (47 lineas) - Deteccion de privilegios
+--------------------------------------------------------------------------------
+  detect_privilege_prefix(emit=None)
+      Devuelve la lista de prefijo para ejecutar un comando como root:
+        1. Si ya se es root (geteuid()==0), devuelve [].
+        2. Si "sudo -n true" funciona, devuelve ["sudo", "-n"].
+        3. Si existe pkexec y hay sesion grafica (WAYLAND_DISPLAY o DISPLAY),
+           devuelve ["pkexec", "--keep-cwd"] y avisa por "emit". El flag
+           --keep-cwd evita que livecd-creator deje la ISO en /root.
+        4. Si nada funciona, lanza RuntimeError explicando como habilitar sudo.
+      Realiza una prueba real de sudo (no asume nada) para no colgarse pidiendo
+      contrasena en un proceso sin terminal.
+
+--------------------------------------------------------------------------------
+ core/usb.py  (298 lineas) - Discos USB y escritura con dd
+--------------------------------------------------------------------------------
+Constantes:
+  SYSTEM_MOUNTS = ("/boot", "/usr", "/var", "/etc", "/home", "/opt", "/srv",
+                   "/root")  Puntos de montaje que identifican el disco del
+                   sistema (nunca se ofrecen como destino).
+
+Funciones y metodos:
+
+  _is_system_mount(mount)
+      True si el punto de montaje es "/" o cae dentro de algun SYSTEM_MOUNTS.
+      Evita ofrecer el disco donde vive el sistema, incluso si el host arranco
+      desde un USB.
+
+  size_gib(size)
+      Convierte bytes a GiB (float). Devuelve 0.0 ante valores invalidos.
+
+  _mountpoints(entry)
+      Normaliza el campo "mountpoints" de lsblk (cadena, lista o None) a una
+      lista sin entradas vacias.
+
+  list_usb_disks()
+      Ejecuta "lsblk -J -b" y arma la lista de discos USB extraibles:
+        - exige type == "disk", ruta /dev/... y disco no de solo lectura;
+        - acepta discos removibles/hotplug o con transporte USB;
+        - recolecta puntos de montaje propios y de sus particiones hijas;
+        - descarta el disco del sistema (via _is_system_mount);
+        - devuelve diccionarios con path, size, model, serial, tran,
+          removable, mountpoints y children.
+      Lanza RuntimeError si falta lsblk, si falla o si el JSON no se entiende.
+
+Clase USBWriterWorker(QThread):
+  Escribe una ISO en un dispositivo con dd, pidiendo privilegios.
+  Senales:
+      log_signal(str)          Mensajes y salida de dd.
+      progress_signal(int)     Porcentaje 0-100.
+      finished_signal(bool,str) Exito y mensaje final.
+
+  __init__(iso_path, device_path, parent=None)
+      Guarda rutas de origen y destino.
+
+  run()
+      Ejecuta _write() y traduce cualquier excepcion a un resultado fallido,
+      emitiendo siempre finished_signal.
+
+  _write()
+      Validaciones previas: ISO existente y no vacia; dispositivo existente y
+      de bloque; el destino debe figurar en list_usb_disks(); la ISO debe caber
+      en el dispositivo; la ISO no puede estar guardada dentro del mismo USB
+      que se va a borrar.
+      Luego:
+        - detecta el prefijo de privilegios;
+        - arma un script sh con "set -e" que hace swapoff de swaps inactivas,
+          umount de las particiones montadas, verifica que ya no esten
+          montadas (aborta si siguen), ejecuta
+          "dd if=ISO of=/dev/... bs=4M conv=fsync status=progress" y "sync";
+        - lanza el proceso y lee su salida en tiempo real con select();
+        - devuelve (True, mensaje) al terminar bien o (False, mensaje) con el
+          codigo de error de dd.
+
+  _handle_output(text, iso_size, last_logged)
+      Interpreta una linea de dd. Si es "N bytes ..." calcula el porcentaje,
+      actualiza la barra y loguea como maximo cada 5 %. Cualquier otra linea se
+      reenvia al log. Devuelve el ultimo porcentaje logueado (para no inundar).
+
+--------------------------------------------------------------------------------
+ core/builder.py  (2268 lineas) - Corazon del generador de ISOs
+--------------------------------------------------------------------------------
+Proposito: construir el Kickstart completo (paquetes, %post, servicios,
+branding, instalador, greeter) y ejecutar livecd-creator con seguimiento,
+cancelacion y publicacion de la ISO.
+
+Constantes de la receta:
+  FEDORA_RELEASE="44", FEDORA_ARCH="x86_64"
+  DEFAULT_MIRRORLIST="https://mirrors.fedoraproject.org/mirrorlist"
+  BUILD_ROOT="/var/tmp/creador-kiosk"   Arbol de trabajo (disco, no tmpfs).
+  CACHE_ROOT="/var/cache/creador-kiosk" Cache de RPMs entre builds.
+  DEFAULT_OUTPUT_DIR="~/ISOs"
+  MIN_FREE_BYTES=12 GiB
+  MAX_PLYMOUTH_BYTES=4 MiB, MAX_GREETER_BYTES=8 MiB
+  GREETER_VENDOR_DIR -> vendor/lightdm-elephant-greeter
+
+Funciones de modulo:
+
+  _sanitize(text, maxlen, fallback)
+      Deja solo letras, numeros, punto, guion y guion bajo; recorta a maxlen y
+      usa fallback si queda vacio. Se usa para labels de volumen y nombres de
+      archivo seguros.
+
+  _dedupe(items)
+      Elimina duplicados conservando el orden.
+
+  invalid_package_names(raw)
+      Devuelve los nombres invalidos de "Paquetes adicionales" (se separan por
+      espacios o comas). Solo acepta [A-Za-z0-9][A-Za-z0-9._+-]*. Evita
+      inyeccion de shell en la seccion %packages del Kickstart.
+
+Clase KioskISOBuilder(QObject):
+  Senales: log_signal(str), progress_signal(int).
+
+  __init__(config)
+      Normaliza toda la configuracion de la GUI: nombre/version/desarrollador,
+      nombre de producto, modo de arranque, resolucion, bloqueo de VTs,
+      reinicio ante fallos, multiventana y segunda app, instalador, LightDM,
+      opciones de seguridad (firewall, SSH con contrasena, sudo sin
+      contrasena, sandbox de Chromium), mirror/mirrorlist (variables de
+      entorno), release, UID/GID reales (considera SUDO_UID/SUDO_GID), rutas
+      de trabajo/cache/Kickstart/log, fslabel e iso_filename saneados y carpeta
+      de salida.
+
+  build()
+      Orquesta todo el build en 8 pasos (ver seccion 2). Devuelve True/False y
+      nunca propaga excepciones: las reporta por log_signal.
+
+  _raise_if_cancelled()
+      Lanza RuntimeError si el evento de cancelacion de la GUI esta activo.
+
+  _preflight()
+      Verifica que existan livecd-creator y openssl; detecta privilegios;
+      comprueba el repositorio. Falla con mensaje accionable si falta algo.
+
+  _privilege_prefix()
+      Envoltorio de detect_privilege_prefix con el log de la GUI.
+
+  _repo_lines()
+      Genera las lineas "repo" del Kickstart: mirror fijo (KIOSK_MIRROR, layout
+      releases/ + updates/) o mirrorlist oficial con parametros de repo/arch.
+
+  _check_repo()
+      Aviso temprano de red: si hay mirror fijo hace un HEAD a repomd.xml; si
+      no, consulta el mirrorlist y cuenta mirrors utilizables. No aborta: solo
+      informa (dnf reintentara durante el build).
+
+  _prepare_dirs()
+      Crea build_root y cache_dir como root y work_dir/tmp_dir, y deja work_dir
+      a nombre del usuario real. Agrupa todo en un unico comando privilegiado
+      para minimizar prompts de pkexec.
+
+  _cleanup_stale_builds()
+      Desmonta y borra restos "imgcreate-*" de builds anteriores (umount -R,
+      detach de loop devices, rm -rf). No toca nada si hay otro livecd-creator
+      en ejecucion.
+
+  _check_disk()
+      Advierte si quedan menos de 12 GiB en el arbol de trabajo o si esta en
+      tmpfs (RAM).
+
+  _run(cmd) [staticmethod]
+      subprocess.run con captura de salida y stdin cerrado; helper uniforme.
+
+  _must(result, action)
+      Exige returncode 0; si no, lanza RuntimeError con stderr/stdout y la
+      accion que se intentaba.
+
+  _password_hash()
+      Genera el hash SHA512 (openssl passwd -6 -stdin). Exige contrasena no
+      vacia y valida el prefijo "$6$".
+
+  _expand_owner_path(path)
+      Expande "~" usando el home del usuario real (SUDO_USER) y no el de root.
+
+  _resolve_app()
+      Resuelve la aplicacion principal segun app_mode:
+        - chromium: ejecutable con flags de kiosco Wayland (y --no-sandbox si
+          se relajo la seguridad);
+        - firefox: firefox --kiosk URL;
+        - firefox-es: igual, mas politica RequestedLocales es-AR;
+        - custom: archivo .rpm (delegado a _resolve_rpm_app), archivo suelto
+          (se copia a /usr/local/bin; los .py se ejecutan con python3) o
+          carpeta (detecta binario con el nombre de la carpeta, carpeta.sh, un
+          unico .AppImage o main.py; copia a /opt/kiosk_app). Advierte si hay
+          venv incluido y calcula paquetes runtime.
+      Devuelve un diccionario con exec, packages, copy, chmod y opcionalmente
+      post/repo.
+
+  _chromium_exec(url, no_sandbox=False) [staticmethod]
+      Arma el comando de Chromium en modo kiosco Wayland: ozone-platform,
+      --kiosk, opciones para evitar dialogos, --password-store=basic y URL
+      citada con shlex.
+
+  _firefox_exec(url) [staticmethod]
+      Arma "/usr/bin/firefox --kiosk URL".
+
+  _firefox_es_app(url)
+      Igual que Firefox pero agrega un %post que escribe
+      /etc/firefox/policies/policies.json con RequestedLocales ["es-AR"].
+
+  _resolve_app2()
+      Resuelve la segunda aplicacion del modo multiventana: chromium, firefox,
+      firefox-es, archivo local (binario/script/RPM con sufijo "2" para no
+      colisionar) o comando personalizado. Valida que no haya saltos de linea y,
+      si el comando es un navegador, agrega su paquete automaticamente.
+
+  _resolve_rpm_app(source, suffix="")
+      Inspecciona un RPM con "rpm -qp": obtiene nombre del paquete y lista de
+      archivos ejecutables en /usr/bin, /usr/local/bin, /usr/libexec u /opt.
+      Elige el binario unico o el que coincide con el nombre del paquete; si
+      hay ambiguedad, pide seleccionar el binario a mano. Publica el RPM como
+      repositorio local con createrepo_c (repo "kiosk-appN") para que dnf
+      resuelva dependencias dentro de la imagen. Agrega qt6-qtwayland.
+
+  _custom_runtime_packages(directory, source, python_app=False)
+      Paquetes minimos para apps propias: Qt6 base/Wayland, EGL, glvnd,
+      fontconfig y fuentes. Si es app Python agrega python3 y detecta bindings
+      (o asume python3-pyside6).
+
+  _python_bindings(directory)
+      Recorre hasta 2 niveles de carpetas leyendo .py y detecta imports de
+      PySide6, PyQt6 o PyQt5 para mapearlos a paquetes de Fedora. Si encuentra
+      PySide2 lanza error (no esta en Fedora 44).
+
+  _generate_kickstart(password_hash)
+      Valida modo de arranque (dual/uefi) y resolucion (NNNxNNN o auto);
+      advierte que livecd-creator siempre genera ISO hibrida; resuelve app y
+      app2; arma todas las secciones (%packages, copias, %post, Plymouth,
+      instalador, VTs, servicios, greeter) y escribe kiosk.ks con permisos 0600.
+      El esqueleto fija: text, lang es_AR.UTF-8, teclado la-latin1, timezone
+      America/Buenos_Aires, authselect minimal, root bloqueado, SELinux
+      deshabilitado, firewall opcional, servicios base, bootloader MBR con
+      timeout 3 y raiz ext4 de 20 GiB.
+
+  _package_lines(app, app2=None)
+      Construye la seccion %packages por grupos y sin duplicados:
+      base del sistema (kernel, dracut-live, Plymouth, compositor Cage/Sway,
+      seatd, drivers, fuentes...), red, administracion (SSH, sudo, firewalld),
+      app(s), instalador Anaconda, arranque UEFI (shim/grub), resolucion fija
+      (wlr-randr) y paquetes adicionales validados. Agrega plymouth-plugin-script
+      si hay splash propio, y paquetes de LightDM si esta habilitado.
+
+  _post_base(password_hash, include_chmod="")
+      %post comun: exporta PATH (livecd-creator usa entorno vacio), authselect,
+      enmascara getty@tty1, crea grupos y kioskuser con el hash, prepara el log
+      de sesion, escribe sudoers (con o sin contrasena), configura SSH (root
+      bloqueado, login por contrasena opcional, drop-in 00-kiosk.conf), habilita
+      NetworkManager/seatd/firewalld, ajusta dueno de /opt/kiosk_app y aplica
+      chmod del ejecutable si corresponde.
+
+  _plymouth_section()
+      Si hay imagen de splash: valida tamano, la incrusta en base64 como
+      /usr/share/plymouth/themes/kiosk/logo.png, crea el tema script
+      (kiosk.plymouth + kiosk.script centrado), agrega el modulo plymouth a
+      dracut, fija el tema por defecto y regenera el initramfs (marca
+      /boot/.kiosk-plymouth-ok si tiene exito).
+
+  _branding_section()
+      Si hay nombre de producto: valida caracteres, reescribe /etc/os-release
+      (conservando ID/VERSION_ID de Fedora) con NAME y PRETTY_NAME propios, y
+      escribe /etc/system-release para que liveinst/Anaconda muestren ese
+      nombre. Vacio = identidad Fedora intacta.
+
+  _installer_section()
+      Si el instalador esta habilitado: incrusta el banner (base64) en las
+      rutas de pixmaps de Anaconda y escribe el texto de bienvenida en
+      /etc/kiosk-installer-message.txt y /usr/share/anaconda/help/welcome.txt.
+
+  _installer_access_section()
+      Regla polkit 49-kiosk-liveinst.rules que permite a kioskuser lanzar
+      liveinst sin agente polkit (Cage/Sway no traen uno) y a root usar
+      pkexec. Solo si el instalador esta habilitado.
+
+  _installer_boot_section()
+      %post --nochroot que duplica la entrada de arranque linux0 en
+      isolinux.cfg y agrega un menuentry en EFI/BOOT/grub.cfg con
+      "kiosk.mode=installer", que las sesiones interpretan para abrir Anaconda.
+
+  _plymouth_sync_section()
+      %post --nochroot que copia el initramfs regenerado a
+      $LIVE_ROOT/isolinux/initrd0.img (livecd-creator ya habia copiado el
+      original antes de los %post).
+
+  _vt_section()
+      Bloquea consolas virtuales: NAutoVTs=0 en logind, enmascara getty de
+      tty2..tty6 y ctrl-alt-del. Queda solo SSH para administracion.
+
+  _session_enable_lines()
+      Habilita el arranque directo del kiosco (kiosk.service, target
+      multi-user) o de LightDM (lightdm.service, graphical.target).
+
+  _service_section(app, app2=None)
+      Elige la sesion Sway (multiventana) o Cage (una sola app).
+
+  _systemd_escape(value)
+      Escapa "%" como "%%" para campos de systemd.
+
+  _cage_service_section(exec_cmd)
+      Genera la sesion de kiosco sobre TTY1 con Cage:
+        - /usr/local/bin/kiosk-session: si el kernel trae kiosk.mode=installer
+          abre liveinst; si hay resolucion fija la aplica con wlr-randr en
+          segundo plano; luego exec "$@";
+        - /usr/local/bin/kiosk-app.cmd: el comando real en base64 (evita que
+          caracteres como % se interpreten como especificadores de systemd);
+        - /etc/systemd/system/kiosk.service con usuario kioskuser, PAM login,
+          TTY1, entorno Wayland/Qt/Mozilla, Restart always|no, RestartSec 2.
+
+  _sway_app_script(number, workspace)
+      Script sh que lanza kiosk-app-N.cmd, espera a que aparezca su PID en el
+      arbol de Sway (swaymsg get_tree) y mueve la ventana a su workspace; si
+      restart esta activo, repite en bucle.
+
+  _sway_service_section(exec1, exec2)
+      Genera todo el modo multiventana:
+        - /etc/sway/kiosk.conf sin bordes/gaps, XWayland, teclado latam,
+          atajos Super+1/2/Tab/flechas y Alt+1/2/Tab/flechas, Alt+9/Super+9
+          para kiosk-wifi, y nm-connection-editor flotante/centrado/sticky;
+        - scripts kiosk-app-1/2 y sus .cmd en base64;
+        - kiosk-sway-start: modo instalador, arranque secuencial de la app 1,
+          cambio al workspace 2, app 2 y vuelta al 1;
+        - kiosk-wifi: abre nm-connection-editor dentro de dbus-run-session;
+        - regla polkit 49-kiosk-network.rules para que kioskuser administre
+          NetworkManager sin contrasena;
+        - kiosk-resolution (wlr-randr) si la resolucion no es auto;
+        - kiosk.service ejecutando "sway --config /etc/sway/kiosk.conf".
+
+  _b64_file(path) [staticmethod]
+      Lee un archivo y devuelve su contenido en base64 envuelto cada 76
+      caracteres (formato apto para here-doc).
+
+  _install_b64_file(target, source, mode="0644")
+      Devuelve el fragmento de shell que decodifica un archivo base64 en
+      "target" y le aplica el modo indicado.
+
+  _greeter_section()
+      Instala LightDM + Elephant Greeter sin depender de paquetes inexistentes:
+      incrusta desde vendor/ el .py, el .ui, los iconos X/Wayland y la licencia;
+      opcionalmente incrusta la imagen de fondo; escribe la configuracion del
+      greeter, los .desktop de greeter y de sesion kiosco (Sway o Cage), la
+      configuracion de LightDM (sin invitados, sesion por defecto kiosk) y crea
+      el usuario/grupo lightdm con permisos en /var/lib/lightdm.
+
+  _track_phase(line)
+      Traduce lineas de livecd-creator a porcentajes: "installing" 45 %,
+      mksquashfs 75 %, "creating iso"/xorriso 88 %.
+
+  _signal_process_group(process, sig) [staticmethod]
+      Envia la senal al grupo de procesos (killpg) y, si falla, solo al
+      proceso. Permite matar sudo/pkexec + livecd-creator + dnf + mksquashfs.
+
+  _terminate_process_tree(process)
+      SIGTERM al arbol y, si no termina en 10 s, SIGKILL (con otra espera).
+
+  _run_livecd()
+      Prepara y ejecuta livecd-creator con --config, --fslabel, --releasever,
+      --product/--title, --cache y --tmpdir. Lee la salida con select() en
+      tiempo real, escribe un log propio legible, filtra ruido conocido de
+      urlgrabber, detecta paquetes inexistentes y sugiere corregirlos, emite un
+      latido cada 20 s y atiende la cancelacion. Al terminar: limpia restos si
+      fallo, localiza y publica la ISO, actualiza last_iso_path y devuelve el
+      resultado.
+
+  _locate_iso()
+      Busca la ISO esperada en work_dir, luego cualquier *.iso mas reciente y,
+      como red de seguridad, /root/<fslabel>.iso (caso pkexec sin --keep-cwd).
+
+  _publish_iso(source)
+      Mueve la ISO a la carpeta de salida (expande ~ del usuario real) y le
+      cambia el dueno. Si ya existe el nombre destino, agrega marca de tiempo
+      YYYYmmdd-HHMMSS.
+
+================================================================================
+ 4.3  gui/  - INTERFAZ GRAFICA (una solapa por mixin)
+================================================================================
+
+--------------------------------------------------------------------------------
+ gui/__init__.py  (1 linea)
+--------------------------------------------------------------------------------
+Solo un docstring: "Solapas y componentes de la GUI de Creador-kiosk".
+
+--------------------------------------------------------------------------------
+ gui/tab_meta.py  (96 lineas) - Solapa 1: Base y Metadatos
+--------------------------------------------------------------------------------
+  MetaTabMixin.init_tab_meta()
+      Construye la solapa con: distribucion base (Fedora 44, fija), nombre de
+      ISO, nombre del producto (con ayuda sobre Anaconda/hostnamectl), version,
+      creador/taller, modo de arranque (dual o solo UEFI), contrasena de
+      kioskuser (obligatoria), casillas de firewall (solo SSH), login SSH con
+      contrasena y sudo sin contrasena (marcada como menos segura). Agrega la
+      solapa al QTabWidget.
+
+--------------------------------------------------------------------------------
+ gui/tab_aesthetic.py  (165 lineas) - Solapa 2: Estetica
+--------------------------------------------------------------------------------
+  AestheticTabMixin.init_tab_aesthetic()
+      Construye dos grupos:
+        - Boot Splash (Plymouth): vista previa, botones cambiar/quitar y un
+          ImageField con limite de 4 MiB.
+        - Pantalla de Inicio (LightDM + Elephant Greeter): casilla para
+          habilitarlo, vista previa y fondo configurable (8 MiB).
+      Agrega el selector de resolucion nativa (auto, 1360x768, 1920x1080,
+      1280x720), envuelve todo en un QScrollArea y registra la solapa.
+
+  AestheticTabMixin.update_greeter_fields(*args)
+      Habilita o deshabilita los controles de fondo del greeter segun la
+      casilla de LightDM (conectada a su senal toggled).
+
+--------------------------------------------------------------------------------
+ gui/tab_software.py  (256 lineas) - Solapa 3: Software
+--------------------------------------------------------------------------------
+  SoftwareTabMixin.init_tab_software()
+      Grupo "Entorno Grafico Objetivo": muestra que se usara Wayland y el
+      compositor (Cage o Sway).
+      Grupo "Aplicacion en Kiosco": selector de app principal (Chromium,
+      Firefox, Firefox es-AR, aplicacion local), URL de inicio, botones para
+      elegir archivo/RPM o carpeta, paquetes adicionales (dnf), y casillas:
+      reinicio automatico ante fallos, deshabilitar sandbox de Chromium y
+      bloquear consolas virtuales.
+      Grupo "Segunda aplicacion / Multiventana (Sway)": casilla de
+      habilitacion, tipo de segunda app (navegadores, comando personalizado o
+      archivo local), URL, comando, selector de archivo y texto de ayuda con
+      atajos. Conecta los cambios de selector con los actualizadores de campos.
+
+  SoftwareTabMixin.update_app_fields(*args)
+      Habilita los botones/ruta local solo si la app principal es "custom" y
+      deshabilita la URL en ese caso; actualiza el texto del compositor segun
+      el modo multiventana y refresca los campos de la segunda app.
+
+  SoftwareTabMixin.update_app2_fields(*args)
+      Habilita selectivamente URL, comando, archivo local y ayuda de la
+      segunda app segun la casilla multiventana y el modo elegido.
+
+  SoftwareTabMixin.select_app2_local_file()
+      Abre un dialogo de archivo para elegir binario/script/RPM de la segunda
+      app y guarda la ruta en app2_local_path.
+
+  SoftwareTabMixin.select_app_file()
+      Abre un dialogo para elegir ejecutable/script/RPM de la app principal y
+      guarda la ruta en custom_app_path.
+
+  SoftwareTabMixin.select_app_dir()
+      Abre un dialogo de carpeta para elegir el directorio de la app principal
+      y guarda la ruta en custom_app_path.
+
+--------------------------------------------------------------------------------
+ gui/tab_installer.py  (101 lineas) - Solapa 4: Instalador
+--------------------------------------------------------------------------------
+  InstallerTabMixin.init_tab_installer()
+      Construye:
+        - casilla "Habilitar instalador en disco duro" (incluye Anaconda y la
+          entrada de arranque "Instalar en disco");
+        - grupo Banner/Imagen del instalador con vista previa y ImageField
+          (4 MiB);
+        - grupo Texto de bienvenida con QTextEdit (mensaje para el instalador)
+          y su nota explicativa.
+
+--------------------------------------------------------------------------------
+ gui/tab_build.py  (117 lineas) - Solapa 5: Compilacion
+--------------------------------------------------------------------------------
+  BuildTabMixin.init_tab_build()
+      Construye: carpeta de salida de la ISO (por defecto ~/ISOs) con boton
+      para cambiarla, boton grande "GENERAR ISO KIOSCO", boton "Cancelar",
+      barra de progreso y consola de logs (QTextEdit de solo lectura, estilo
+      terminal).
+
+  BuildTabMixin.select_output_dir()
+      Dialogo para elegir la carpeta de salida y escribirla en txt_output.
+
+  BuildTabMixin.build_finished(success)
+      Restaura botones al terminar; distingue exito, cancelacion por el usuario
+      (mirando worker.cancel_event) y error, y escribe el mensaje
+      correspondiente en el log.
+
+  BuildTabMixin.cancel_build()
+      Si hay compilacion en curso, pide confirmacion, deshabilita Cancelar y
+      activa worker.cancel_event para que el backend aborte el arbol.
+
+--------------------------------------------------------------------------------
+ gui/tab_usb.py  (282 lineas) - Solapa 6: Crear USB
+--------------------------------------------------------------------------------
+  UsbTabMixin.init_tab_usb()
+      Construye: seleccion de ISO, combo de dispositivos USB con boton
+      "Actualizar", etiqueta de informacion, aviso en rojo de que se borrara el
+      dispositivo, casilla de confirmacion, boton "CREAR USB CON DD", barra de
+      progreso y log de dd. Conecta el cambio de solapa para refrescar la lista
+      y hace un primer listado.
+
+  UsbTabMixin.select_usb_iso()
+      Dialogo para elegir el .iso (arranca en la carpeta de salida o en ~).
+
+  UsbTabMixin.refresh_usb_on_tab(index)
+      Refresca los dispositivos cuando se entra a la solapa USB y no hay una
+      escritura en curso.
+
+  UsbTabMixin.refresh_usb_devices()
+      Llama a list_usb_disks() y repuebla el combo con ruta, tamano, modelo y
+      numero de serie. Si hay error o no hay discos, muestra un item
+      informativo no seleccionable. Intenta conservar el dispositivo que estaba
+      elegido y actualiza el estado de los controles.
+
+  UsbTabMixin.on_usb_device_changed(*args)
+      Al cambiar de dispositivo desmarca la confirmacion (obliga a confirmar
+      de nuevo) y actualiza controles.
+
+  UsbTabMixin.update_usb_controls(*args)
+      Muestra el estado de la ISO (inexistente, tamano), el destino y sus
+      montajes, advierte si la ISO es mas grande que el dispositivo y habilita
+      el boton de escritura solo si: ISO valida, disco seleccionado,
+      confirmacion marcada, tamano suficiente y sin escritura en curso.
+
+  UsbTabMixin.start_usb_write()
+      Valida ISO, dispositivo y confirmacion; pide confirmacion final con un
+      dialogo de advertencia; bloquea los controles, crea USBWriterWorker,
+      conecta sus senales y lo arranca.
+
+  UsbTabMixin.usb_finished(ok, message)
+      Restaura controles, desmarca la confirmacion, actualiza la barra, informa
+      exito o error (log + dialogo) y refresca la lista de dispositivos.
+
+--------------------------------------------------------------------------------
+ gui/images.py  (169 lineas) - Campo de imagen reutilizable
+--------------------------------------------------------------------------------
+Clase ImageField:
+  Encapsula la logica repetida para splash de Plymouth, fondo del greeter y
+  banner del instalador: elegir archivo, convertir/reducir a PNG, previsualizar
+  y limpiar.
+
+  CACHE_DIR = "~/.cache/creador-kiosk"   Carpeta de imagenes preparadas.
+
+  __init__(owner, preview, label, dialog_title, cache_name, max_bytes,
+           limit_label, empty_preview_text, default_label_text)
+      Guarda referencias a widgets y parametros; inicializa path y
+      source_path vacios.
+
+  select()
+      Abre el dialogo de imagenes (png/jpg/jpeg/webp/bmp). Si el QImage no se
+      puede leer, avisa. Si ya es PNG y cabe en el limite, lo usa tal cual; si
+      no, llama a _prepare() para convertirlo/reducirlo.
+
+  clear()
+      Borra el PNG cacheado, limpia las rutas y restaura la vista previa vacia.
+
+  set_enabled(enabled)
+      Habilita/deshabilita vista previa y etiqueta (usado por la casilla de
+      LightDM).
+
+  cache_path [property]
+      Devuelve (y crea) la ruta del PNG preparado dentro de CACHE_DIR.
+
+  _prepare(image)
+      Convierte a PNG y reduce la imagen progresivamente (primero a 4096 px
+      maximos, luego escalando 80 %) hasta que pese menos que max_bytes. Si no
+      lo logra, muestra error y devuelve None.
+
+  update_display(converted=False)
+      Muestra la imagen escalada en la vista previa y escribe en la etiqueta
+      nombre, dimensiones, peso, si fue convertida y la ruta final; si no hay
+      imagen, restaura los textos por defecto.
+
+================================================================================
+ 4.4  tests/  - PRUEBAS AUTOMATICAS (pytest)
+================================================================================
+
+--------------------------------------------------------------------------------
+ tests/test_builder.py  (650 lineas) - Pruebas del Kickstart y del backend
+--------------------------------------------------------------------------------
+Helper:
+  _make_builder(tmpdir, **overrides)
+      Crea un KioskISOBuilder con configuracion minima valida y redirige
+      work_dir/ks_path al directorio temporal.
+
+Casos (que garantiza cada uno):
+  1. test_installer_section_generation
+     La seccion del instalador incrusta banner y texto en las rutas correctas.
+  2. test_enable_installer_packages
+     Los paquetes de Anaconda aparecen solo cuando el instalador esta activo.
+  3. test_cage_command_with_percent_is_not_in_execstart
+     Un "%" en la URL no se interpreta como especificador de systemd (comando
+     va en base64).
+  4. test_cage_description_escapes_percent
+     La descripcion del servicio escapa "%" como "%%".
+  5. test_sway_uses_latam_keyboard_and_installer_mode
+     Sway usa teclado latam y contempla kiosk.mode=installer.
+  6. test_installer_boot_and_polkit_access
+     Se generan la regla polkit de liveinst y la configuracion de acceso.
+  7. test_installer_boot_script_adds_bios_and_efi_entries
+     El script agrega la entrada de instalador en isolinux y en grub EFI.
+  8. test_installer_sections_empty_when_disabled
+     Con el instalador apagado no se genera ninguna seccion de instalador.
+  9. test_password_is_required
+     Sin contrasena el build falla con error explicito.
+ 10. test_chromium_sandbox_is_enabled_by_default
+     Chromium arranca con sandbox salvo que se desactive explicitamente.
+ 11. test_security_toggles_in_kickstart
+     Firewall, SSH, sudoers y sandbox reflejan las casillas de la GUI.
+ 12. test_lightdm_greeter_disabled_by_default
+     Sin LightDM no se agregan paquetes ni seccion de greeter.
+ 13. test_lightdm_greeter_packages_and_session
+     Con LightDM se agregan paquetes, configuracion y sesion kiosco.
+ 14. test_lightdm_greeter_uses_sway_session_and_adds_cage
+     En multiventana la sesion del greeter usa Sway y se agrega Cage para el
+     greeter.
+ 15. test_lightdm_greeter_requires_existing_background
+     Un fondo inexistente aborta la generacion.
+ 16. test_elephant_greeter_vendor_files_are_valid
+     Los archivos vendorizados existen y son validos.
+ 17. test_lightdm_greeter_section_is_valid_shell
+     La seccion del greeter es shell valido (se compila con bash -n).
+ 18. test_kickstart_partition_sizing
+     La particion raiz tiene el tamano esperado (20 GiB).
+ 19. test_invalid_package_names_helper
+     invalid_package_names acepta nombres validos y detecta invalidos.
+ 20. test_extra_packages_rejected_when_invalid
+     Un paquete invalido aborta la generacion del Kickstart.
+ 21. test_kickstart_file_is_private
+     kiosk.ks se escribe con permisos 0600.
+ 22. test_firefox_es_locale_policy
+     Firefox es-AR agrega la politica RequestedLocales.
+ 23. test_firefox_es_as_second_app
+     La segunda app puede ser Firefox espanol.
+ 24. test_sway_wifi_shortcut_and_polkit
+     Alt+9, kiosk-wifi y la regla polkit de red estan presentes.
+ 25. test_cage_mode_has_no_wifi_editor
+     En modo Cage no se instala el editor de red ni sus atajos.
+ 26. test_run_livecd_aborta_cuando_se_cancela
+     La cancelacion manda senales al arbol y devuelve False.
+ 27. test_product_name_branding
+     El branding reescribe os-release/system-release correctamente.
+ 28. test_product_name_reaches_kickstart
+     El nombre de producto llega al Kickstart final.
+ 29. test_product_name_invalid_characters
+     Comillas, "\" o "$" en el nombre de producto se rechazan.
+ 30. test_product_name_empty_disables_branding
+     Nombre vacio desactiva el branding (identidad Fedora intacta).
+
+--------------------------------------------------------------------------------
+ tests/test_usb.py  (265 lineas) - Pruebas de enumeracion USB y dd
+--------------------------------------------------------------------------------
+Helpers:
+  _lsblk_result(stdout, returncode, stderr)  Simula el resultado de subprocess.
+  _disk(name, **overrides)                   Crea un disco falso con defaults.
+  _devices_json(*devices)                    Envuelve discos en el JSON de lsblk.
+  _patch_lsblk(monkeypatch, stdout, ...)     Parchea subprocess.run y shutil.which.
+
+Casos:
+  - test_is_system_mount: "/" y subrutas de sistema son reconocidas.
+  - test_size_gib: conversion a GiB y tolerancia a valores invalidos.
+  - test_mountpoints_normalization: cadena, lista y None se normalizan.
+  - test_list_usb_disks_requires_lsblk: error claro si falta lsblk.
+  - test_list_usb_disks_raises_on_lsblk_failure: propaga el fallo como
+    RuntimeError con el mensaje de lsblk.
+  - test_list_usb_disks_raises_on_bad_json: JSON invalido produce error
+    entendible.
+  - test_list_usb_disks_keeps_only_removable_usb_disks: descarta discos no
+    removibles y no USB.
+  - test_list_usb_disks_excludes_system_disks: nunca ofrece el disco del
+    sistema.
+  - test_list_usb_disks_keeps_data_disks_with_media_mounts: un USB de datos
+    montado en /media o /run/media si se ofrece.
+  - test_list_usb_disks_merges_child_mountpoints: suma montajes de particiones
+    hijas.
+  - test_list_usb_disks_accepts_usb_without_removable_flag: acepta USB por
+    transporte aunque no marque "removable".
+  - test_list_usb_disks_accepts_hotplug_without_usb_transport: acepta hotplug
+    sin transporte USB.
+  - test_list_usb_disks_path_fallback_to_dev_name: reconstruye /dev/<name> si
+    falta el campo path.
+  - test_list_usb_disks_skips_non_dev_paths: ignora rutas que no son /dev/.
+  - test_handle_output_progress_and_log_gate: el parser de salida de dd calcula
+    porcentaje y limita los logs a incrementos de 5 %.
+
+================================================================================
+ 4.5  vendor/  - CODIGO DE TERCEROS EMBEBIDO
+================================================================================
+
+--------------------------------------------------------------------------------
+ vendor/lightdm-elephant-greeter/  (greeter MIT vendorizado)
+--------------------------------------------------------------------------------
+Se incluye porque Fedora no empaqueta este greeter. core/builder.py lo incrusta
+en el %post del Kickstart como archivos base64.
+
+  README.md       Origen (github.com/max-moser/lightdm-elephant-greeter),
+                  licencia MIT y cambios locales (fondo configurable, panel
+                  semitransparente, textos en espanol, tolerancia a sesiones
+                  inexistentes, shebang absoluto).
+  LICENSE         Texto de la licencia MIT.
+  elephant-greeter.py   Implementacion GTK3 + LightDM (309 lineas).
+  elephant-greeter.ui   Interfaz GTK Builder: ventana de login, selector de
+                        usuario/sesion, campo de contrasena, mensajes, icono y
+                        fondo.
+  img/X.png             Icono de sesion X11.
+  img/wayland.png       Icono de sesion Wayland.
+
+Funciones de elephant-greeter.py:
+  set_password_visibility(visible)
+      Muestra u oculta el campo de contrasena y su etiqueta.
+  read_config(gtk_settings, config_file="/etc/lightdm/elephant-greeter.conf")
+      Lee la configuracion: aplica propiedades GTK (incluido tema oscuro) y
+      carga sesion por defecto, rutas de UI, iconos y fondo.
+  write_cache()
+      Persiste el ultimo usuario elegido en ~/.cache/elephant-greeter/state.
+  auto_select_user_session(username)
+      Preselecciona la sesion preferida del usuario en el combo de sesiones.
+  start_session()
+      Inicia la sesion elegida y muestra error si LightDM no puede.
+  dm_show_prompt_cb(...)
+      Responde al pedido de contrasena de LightDM cuando se pulso Login.
+  dm_show_message_cb(...)
+      Muestra mensajes de LightDM en la interfaz y los registra en stderr.
+  dm_authentication_complete_cb(...)
+      Si la autenticacion tuvo exito inicia la sesion; si falla muestra
+      "Contrasena incorrecta"; si el usuario no requiere contrasena oculta el
+      campo.
+  user_change_handler(...)
+      Cancela autenticaciones previas, autentica al usuario elegido, ajusta la
+      sesion y guarda el ultimo usuario.
+  login_click_handler(...)
+      Si ya esta autenticado inicia sesion; si no, reinicia la autenticacion
+      para disparar el pedido de contrasena.
+  poweroff_click_handler(...)
+      Apaga el equipo si LightDM lo permite.
+  Bloque __main__:
+      Carga la UI, conecta senales de LightDM, aplica CSS del panel de login,
+      carga el fondo, llena los combos de usuarios/sesiones, enfoca el control
+      adecuado y muestra la ventana en pantalla completa.
+
+================================================================================
+ 4.6  mi_sitio/  - PLANTILLA DE SITIO ESTATICO (Bolt)
+================================================================================
+ IMPORTANTE: esta carpeta NO participa del build de la ISO ni es importada por
+ main.py/core/gui. Es una semilla de sitio estatico (Bolt, MIT) incluida en el
+ repositorio, probablemente como base para una pagina del proyecto. Se describe
+ para dejar claro que es cada archivo.
+
+--------------------------------------------------------------------------------
+ Archivos de configuracion y documentacion
+--------------------------------------------------------------------------------
+  README.md            Documentacion original de Bolt (Grunt + Pug + Stylus).
+  package.json         Metadatos y dependencias npm de desarrollo (Grunt y
+                       plugins: pug, stylus, uglify, csso, images, manifest...).
+  package-lock.json    Arbol de dependencias bloqueado por npm.
+  bower.json           Metadatos de Bower (sin dependencias declaradas).
+  .bowerrc             Ubicacion de componentes Bower.
+  app.coffee           Configuracion central del build: lista de JS/CSS propios,
+                       recursos a copiar, lectura de package.json, entorno
+                       (dev/www), directorios (app, build/<env>, bower), opcion
+                       de abrir navegador y banner de copyright.
+  gruntfile.coffee     Carga time-grunt, jit-grunt, pug-inheritance y las tareas
+                       de tasks/*.coffee. Define las tareas:
+                         default  -> clean, stylus:dev, pug:dev, copy:dev,
+                                     notify:dev, asciify:dev, browserSync, watch
+                         prod     -> version minificada (purifycss, csso,
+                                     uglify, image, manifest, servidor local)
+                         serve    -> sirve build dev o prod
+                         compile  -> build de produccion sin watch
+  pug-inheritance.coffee  Plugin que recompila solo los .pug afectados por una
+                       herencia (compilacion incremental).
+  app.sublime-project  Configuracion del proyecto para Sublime Text.
+  .travis.yml          Configuracion de integracion continua (Travis).
+  .gitignore           Exclusiones propias de la plantilla (node_modules,
+                       build, bower_components...).
+
+--------------------------------------------------------------------------------
+ tasks/  - Una tarea Grunt por archivo (CoffeeScript)
+--------------------------------------------------------------------------------
+  asciify.coffee       Genera arte ASCII (BOLT/DEV/PROD) en la consola.
+  browserSync.coffee   Servidor de desarrollo con recarga en vivo sobre el
+                       build y observacion de CSS/HTML/JS.
+  bump.coffee          Versionado y commit opcional (grunt bump).
+  clean.coffee         Borra el directorio de build antes de compilar.
+  connect.coffee       Servidores estaticos: puerto 3030 (dev) y 3031 (prod)
+                       con livereload.
+  copy.coffee          Copia JS, CSS de bower, assets y recursos al build.
+  csso.coffee          Minifica CSS de produccion y agrega banner.
+  image.coffee         Optimiza imagenes (jpg/png/gif/ico/webp/svg).
+  manifest.coffee      Genera manifest.appcache con marca de tiempo.
+  notify.coffee        Notificaciones de escritorio al terminar dev/prod.
+  pug.coffee           Compila todos los .pug (excepto _pug/) a .html con datos
+                       del proyecto.
+  purifycss.coffee     Elimina CSS no usado en los HTML/JS de produccion.
+  shell.coffee         Comandos de shell para abrir el sitio en el navegador o
+                       el proyecto en Sublime.
+  stylus.coffee        Compila master.styl a app.css con autoprefixer.
+  uglify.coffee        Minifica y comprime JS de produccion.
+  watch.coffee         Observa estilos, JS, assets y HTML para recompilar.
+
+--------------------------------------------------------------------------------
+ app/  - Fuentes del sitio
+--------------------------------------------------------------------------------
+  index.pug            Pagina de inicio de ejemplo: encabezado, enlace a Bolt y
+                       un bucle de datos que lee data.social.
+  404.pug              Pagina de error 404 con estilos embebidos.
+  manifest.json        Metadatos de aplicacion web (iconos, colores, modo).
+  robots.txt           Directivas para rastreadores.
+  js/app.js            Modulo JS de ejemplo (patron de revelacion) que demuestra
+                       la estructura base.
+  _data/meta.json      Datos del sitio expuestos a las plantillas.
+  _data/social.yml     Lista de enlaces sociales usada por index.pug.
+  _pug/layouts/page.pug        Layout base que extienden las paginas.
+  _pug/includes/head.pug       Metadatos, CSS y head comun.
+  _pug/includes/scripts.pug    Inclusion de scripts al final del body.
+  _pug/includes/mobile/android-homescreen.pug   Iconos/ metas Android.
+  _pug/includes/mobile/apple-homescreen.pug     Iconos/ metas iOS.
+  _pug/includes/mobile/ms-homescreen.pug        Iconos/ metas Windows.
+  _pug/includes/mobile/windows-phone-8.pug      Metas Windows Phone 8.
+  _pug/includes/mobile/handheld.pug             Metas HandheldFriendly,
+                                               enlace al manifest y theme-color.
+  _pug/mixins/link.pug         Mixin de enlace (texto, URL, target blank).
+  _pug/mixins/og-meta.pug      Mixin de metadatos Open Graph.
+  _pug/mixins/twitter-meta.pug Mixin de metadatos Twitter Card.
+  styles/master.styl           Punto de entrada de estilos: requiere nib,
+                               importa mixins, base y modulos (y librerias
+                               externas si es build de produccion).
+  styles/base/_vars.styl       Variables (colores, medidas).
+  styles/base/_breakpoints.styl Media queries reutilizables.
+  styles/base/grid.styl        Sistema de rejilla y utilidades de layout.
+  styles/base/scaffolding.styl Reset y estructura global.
+  styles/base/typography.styl  Tipografia base.
+  styles/mixins/font-face.styl Declaracion de fuentes.
+  styles/mixins/sticky.styl    Mixin de posicionamiento sticky.
+  styles/mixins/text-selection.styl  Estilo de seleccion de texto.
+  styles/mixins/triangle.styl  Triangulos con bordes.
+  styles/modules/animations.styl Animaciones y keyframes.
+  styles/modules/brand.styl    Estilos de marca/encabezado.
+  styles/browser/android.styl  Ajustes para navegador Android (opcional).
+  styles/browser/ie10.styl     Ajustes para IE10 (opcional).
+  styles/browser/ios.styl      Ajustes para iOS (opcional).
+  assets/icons/apple-touch-icon.png, chrome-touch-icon.png, favicon.ico,
+  ms-touch-icon.png, safari-pinned-tab.svg   Iconos del sitio.
+  assets/images/.keep          Mantiene la carpeta de imagenes en Git.
+
+--------------------------------------------------------------------------------
+ build/  - SALIDA GENERADA (no editar a mano)
+--------------------------------------------------------------------------------
+  build/dev/  Version de desarrollo: 404.html, index.html, js/app.js,
+              styles/app.css, manifest.json, robots.txt, assets/icons/*.
+  build/www/  Version de produccion minificada: los mismos archivos mas
+              manifest.appcache.
+  Se regenera con "grunt" o "grunt prod" y esta ignorada por Git.
+
+--------------------------------------------------------------------------------
+ node_modules/  - DEPENDENCIAS NPM
+--------------------------------------------------------------------------------
+Cientos de paquetes de terceros instalados por npm (Grunt y plugins,
+pug, stylus, browser-sync, etc.). No forman parte del codigo del proyecto y no
+se documentan individualmente. Esta ignorado por Git.
+
+================================================================================
+ 5. CONFIGURACION, VARIABLES DE ENTORNO Y SEGURIDAD
+================================================================================
+
+Claves del diccionario "config" que la GUI entrega al backend (main.py):
+  iso_name, version, developer, product_name, release, boot_mode, password,
+  enable_firewall, ssh_password_auth, sudo_nopasswd, chromium_no_sandbox,
+  resolution, plymouth_image, installer_banner, installer_text,
+  enable_installer, enable_lightdm, greeter_background, app_mode, app_url,
+  app_path, multi_app, app2_mode, app2_url, app2_command, app2_path,
+  extra_packages, restart_on_crash, block_vt, output_dir.
+
+Variables de entorno reconocidas por core/builder.py:
+  KIOSK_MIRROR       Mirror fijo con layout Fedora (releases/ + updates/).
+  KIOSK_MIRRORLIST   URL del mirrorlist (defecto: mirrorlist oficial).
+  KIOSK_BUILD_ROOT   Raiz del arbol de trabajo (defecto /var/tmp/creador-kiosk).
+  KIOSK_CACHE_DIR    Cache de RPMs de dnf (defecto /var/cache/creador-kiosk).
+
+Persistencia (QSettings, organizacion "CreadorKiosk", app "Creador-kiosk"):
+  Se guardan todos los campos de la GUI y las rutas de imagenes. La contrasena
+  de kioskuser NO se guarda nunca.
+
+Medidas de seguridad implementadas:
+  - Kickstart escrito con permisos 0600 (contiene el hash SHA512).
+  - Validacion estricta de "Paquetes adicionales" antes de entrar al Kickstart.
+  - Validacion del nombre de producto (sin saltos de linea, comillas, "\" ni $).
+  - Comandos de apps codificados en base64 en scripts, con lo que no rompen los
+    here-doc del %post ni los especificadores de systemd.
+  - root bloqueado; SSH con contrasena opcional; firewall solo SSH por defecto.
+  - Sandbox de Chromium activo por defecto; sudo con contrasena por defecto.
+  - En USB: nunca se ofrece el disco del sistema, se valida que el destino sea
+    un disco extraible, que la ISO quepa y que no este guardada en el mismo
+    dispositivo; se exige confirmacion explicita y dialogo final de aviso.
+  - Cancelacion por senales a todo el grupo de procesos (SIGTERM y luego
+    SIGKILL) y limpieza del arbol de trabajo.
+
+--------------------------------------------------------------------------------
+ 6. COMO EJECUTAR Y PROBAR
+--------------------------------------------------------------------------------
+Requisitos del host (Fedora): livecd-tools, openssl, createrepo_c, util-linux y
+PySide6 (python3-pyside6 o pip install -r requirements.txt).
+
+Ejecutar la GUI:
+    python main.py
+
+Ejecutar las pruebas:
+    python -m pytest tests/
+
+La compilacion y la escritura a USB requieren privilegios: la aplicacion usa
+"sudo -n" si esta disponible y, si no, "pkexec" (polkit pedira autorizacion en
+un dialogo grafico).
+
+================================================================================
+ FIN DEL INFORME
+================================================================================

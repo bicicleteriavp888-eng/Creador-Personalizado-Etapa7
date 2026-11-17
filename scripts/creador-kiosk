@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+APP_DIR="${CREADOR_KIOSK_HOME:-/opt/creador-kiosk}"
+if [[ ! -f "$APP_DIR/main.py" ]]; then
+  echo "No encuentro Creador-kiosk en $APP_DIR. Ejecutá primero packaging/install-fedora.sh." >&2
+  exit 1
+fi
+exec /usr/bin/python3 "$APP_DIR/main.py" "$@"

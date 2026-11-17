@@ -1,0 +1,14 @@
+Creador-kiosk 2.5.3 - correccion de inicializacion de interfaz
+
+- Corrige el AttributeError group_desktop_env al abrir main.py.
+- La pestaña Meta se inicializa antes que Software y puede solicitar una
+  actualizacion de los controles de escritorio antes de que estos existan.
+- refresh_desktop_environment_fields ahora difiere esa actualizacion hasta
+  que los widgets de escritorio hayan sido creados. La pestaña Software
+  vuelve a invocar la funcion al inicializarse.
+- No cambia el motor Kiosco, Fedora Desktop, LightDM ni la configuracion
+  de autenticacion/arranque introducida en 2.5.2.
+
+Validacion de este paquete: compilacion sintactica de todos los archivos
+Python y comprobacion estatica del orden de inicializacion. La ejecucion
+grafica real requiere el entorno local con PySide6.
