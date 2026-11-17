@@ -67,22 +67,15 @@ chmod +x scripts/run_acceptance.sh
 
 Antes de generar una ISO para uso real, revisar especialmente SSH: los perfiles nominales Equipo de Oficina y Estación de Trabajo heredan SSH habilitado de sus JSON originales.
 
-## Incorporar el código fuente completo desde Fedora
+## Publicar la aplicación completa alpha.4
 
-Este repositorio contiene el overlay de Etapa 7 y el importador que permite reconstruir la publicación completa desde la carpeta fuente alpha.3 / Etapa 6 que ya tengas en tu equipo. **No necesitás descargar el ZIP de ChatGPT.**
+El paquete completo alpha.4 ya incluye la Etapa 7: los módulos core/projects, los perfiles nominales, las plantillas y sus pruebas. No hay que volver a aplicar el overlay a este paquete.
 
-1. Asegurate de tener la carpeta fuente local (la utilizada anteriormente para las pruebas en Fedora).
-2. Actualizá el clon y ejecutá el importador:
+Con el ZIP descargado en Fedora, desde un clon limpio de este repositorio ejecutá:
 
 ```bash
-cd ~/Creador-Personalizado-Etapa7
-git restore -- import-full-app.sh 2>/dev/null || true
 git pull --ff-only origin main
-bash import-full-app-from-local-source.sh ~/Descargas/Creador-Personalizado-3.0.0-alpha.3
+bash publish-full-alpha4.sh ~/Descargas/Creador-Personalizado-3.0.0-alpha.4-Full-GPLv3.zip
 ```
 
-Si la carpeta fuente está en otra ubicación, reemplazá la última ruta por la correcta. Debe contener `main.py`, `pyproject.toml`, `requirements.txt`, `core/`, `gui/` y `profiles/`.
-
-El importador copia el árbol fuente a una zona temporal, aplica el overlay GPLv3 de Etapa 7, conserva los avisos de licencia y el historial del repositorio, y luego crea el commit y ejecuta `git push origin main`. Excluye entornos virtuales, cachés, reportes de pruebas, compilaciones y archivos ISO/RAW.
-
-Si Git solicita autenticación para el `push`, completá el inicio de sesión de GitHub en la terminal. El código se publicará en la raíz de este mismo repositorio.
+El script comprueba la versión y la presencia de Etapa 7, excluye cachés y bytecode, conserva el overlay GPL como recurso histórico, importa el árbol completo, crea el commit y hace push a main. Si la rama local tiene commits no publicados que divergen de origin/main, el script se detiene sin sobrescribirlos.
