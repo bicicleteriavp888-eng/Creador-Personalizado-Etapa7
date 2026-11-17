@@ -78,3 +78,7 @@ Después realizar la prueba manual documentada en `documentation/ETAPA7_GESTION_
 Por la limitación de transferencia binaria de la integración, el repositorio distribuye las modificaciones de Etapa 7 como `Etapa7-overlay.tar.gz`, junto con el script `apply-etapa7-overlay.sh`. Este archivo es un **parche de actualización**, no una copia autónoma completa de la aplicación. Debe aplicarse sobre el árbol fuente base de la versión anterior (Etapa 6 / alpha.3).
 
 La suma SHA-256 del archivo publicado figura en `SHA256SUMS.txt`.
+
+## 7. Licencia
+
+La distribución del código de esta entrega queda identificada como **GPL-3.0-or-later**. El texto completo de la licencia se encuentra en `LICENSE` y se incluye también dentro de `Etapa7-overlay-GPLv3.tar.gz`. Esta licencia del proyecto no sustituye las licencias propias de PySide6/Qt ni de las dependencias de terceros.
