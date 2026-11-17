@@ -1,32 +1,43 @@
 # Creador Personalizado — Etapa 7
 
-<sub>Versión del proyecto: **3.0.0-alpha.4** · Repositorio privado</sub>
+<sub>Versión: **3.0.0-alpha.4** · Licencia: **GNU GPL versión 3 o posterior**</sub>
 
-Este repositorio distribuye el **parche de código de Etapa 7** y su documentación. No contiene una copia autónoma completa de la aplicación base. El parche se aplica sobre el árbol fuente de la versión anterior de Creador Personalizado (Etapa 6 / base alpha.3).
+Creador Personalizado permite preparar distribuciones Fedora personalizadas en modalidades Desktop y Kiosco.
+
+## Licencia
+
+El código del proyecto incluido en esta entrega se distribuye bajo **GNU General Public License v3.0 or later (GPL-3.0-or-later)**. Consultá el archivo [LICENSE](LICENSE) para leer el texto íntegro.
+
+La licencia del proyecto no reemplaza ni modifica las licencias de PySide6/Qt ni de otras dependencias o componentes de terceros. Cada componente conserva sus propios términos.
+
+## Alcance de esta publicación
+
+Este repositorio publica el **parche de código de Etapa 7** y su documentación. No contiene una copia autónoma completa de la aplicación base. El parche se aplica sobre el árbol fuente de la versión anterior de Creador Personalizado (Etapa 6 / base alpha.3).
 
 ## Descargar desde GitHub
 
-El archivo binario está en la raíz del repositorio:
+El archivo recomendado está en la raíz del repositorio:
 
-- `Etapa7-overlay.tar.gz` — código modificado y documentación de Etapa 7.
-- `INFORME_ETAPA7.md` — informe técnico.
-- `CHANGELOG-ETAPA7.md` — resumen de cambios.
-- `documentation/ETAPA7_GESTION_PROYECTOS.md` — guía de gestión y precarga.
+- [`Etapa7-overlay-GPLv3.tar.gz`](Etapa7-overlay-GPLv3.tar.gz) — cambios de código de Etapa 7, documentación y licencia GPL.
+- [`LICENSE`](LICENSE) — texto íntegro de GPL-3.0-or-later.
+- [`INFORME_ETAPA7.md`](INFORME_ETAPA7.md) — informe técnico y validaciones.
+- [`CHANGELOG-ETAPA7.md`](CHANGELOG-ETAPA7.md) — resumen de cambios.
+- [`documentation/ETAPA7_GESTION_PROYECTOS.md`](documentation/ETAPA7_GESTION_PROYECTOS.md) — guía de gestión y precarga.
 
-Desde GitHub, abrir **Etapa7-overlay.tar.gz** y elegir **Download raw file**, o descargar el repositorio completo desde **Code → Download ZIP**. Como el repositorio es privado, hay que iniciar sesión con una cuenta autorizada.
+En GitHub, abrí el archivo del paquete y elegí **Download raw file**, o descargá el repositorio con **Code → Download ZIP**. Mientras el repositorio sea privado, solo podrán acceder las cuentas autorizadas.
 
 ## Aplicar el parche en Fedora 44
 
-1. Descargar o clonar este repositorio.
-2. Tener a mano la carpeta fuente existente de Creador Personalizado (base alpha.3 / Etapa 6).
-3. Abrir una terminal en la carpeta descargada y ejecutar:
+1. Descargá el repositorio y la carpeta fuente existente de Creador Personalizado (base alpha.3 / Etapa 6).
+2. Colocá `Etapa7-overlay-GPLv3.tar.gz` y `apply-etapa7-overlay.sh` en la misma carpeta.
+3. Ejecutá:
 
 ```bash
 chmod +x apply-etapa7-overlay.sh
 ./apply-etapa7-overlay.sh /ruta/a/Creador-Personalizado-3.0.0-alpha.3
 ```
 
-El script valida el destino y el archivo comprimido, crea una copia temporal de los archivos existentes que reemplazará y después aplica los archivos del parche. No elimina el resto del proyecto.
+El script valida el destino y el archivo comprimido, crea una copia temporal de los archivos existentes que reemplazará y aplica el parche. No elimina el resto del proyecto.
 
 ## Qué incorpora Etapa 7
 
