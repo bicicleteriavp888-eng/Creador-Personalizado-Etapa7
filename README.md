@@ -66,3 +66,18 @@ chmod +x scripts/run_acceptance.sh
 ```
 
 Antes de generar una ISO para uso real, revisar especialmente SSH: los perfiles nominales Equipo de Oficina y Estación de Trabajo heredan SSH habilitado de sus JSON originales.
+
+## Integrar la aplicación completa alpha.4
+
+**Estado de la rama `main`:** contiene el parche de Etapa 7 y la documentación; el árbol fuente completo todavía debe incorporarse desde el paquete integral. Para hacerlo sin reemplazar la licencia ni los antecedentes del repositorio:
+
+1. Descargá el paquete `Creador-Personalizado-3.0.0-alpha.4-Full-GPLv3.zip` preparado para esta publicación.
+2. Cloná este repositorio y descargá el importador [`import-full-app.sh`](import-full-app.sh) (o usá el que ya está en la raíz del clon).
+3. Desde la carpeta del clon ejecutá:
+
+```bash
+chmod +x import-full-app.sh
+./import-full-app.sh /ruta/al/Creador-Personalizado-3.0.0-alpha.4-Full-GPLv3.zip
+```
+
+El script comprueba que el destino sea este repositorio, que estés en la rama `main` y que no haya cambios locales pendientes. Copia el proyecto completo en la raíz, preserva el aviso GPL y el overlay histórico, prepara un commit y lo publica con `git push`. Si falla una comprobación, se detiene antes de hacer el commit.
