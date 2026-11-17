@@ -18,7 +18,7 @@ fi
 
 DEST="$(realpath -e "$1")"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ARCHIVE="$SCRIPT_DIR/Etapa7-overlay.tar.gz"
+ARCHIVE="$SCRIPT_DIR/Etapa7-overlay-GPLv3.tar.gz"
 
 if [[ ! -d "$DEST" || ! -f "$DEST/main.py" || ! -d "$DEST/core" || ! -d "$DEST/gui" ]]; then
   echo "ERROR: el destino no parece ser la raíz del proyecto Creador Personalizado." >&2
