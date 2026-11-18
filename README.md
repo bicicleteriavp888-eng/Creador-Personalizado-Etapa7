@@ -95,6 +95,10 @@ Para una validación integral también se necesita un entorno Fedora preparado, 
 5. Aislar la configuración y los recursos de cada proyecto.
 6. Documentar los límites conocidos y distinguir pruebas unitarias de pruebas de ISO real.
 
+## Estado de publicación
+
+El estado verificable de la rama principal, la diferencia entre el código publicado y el artefacto alpha.7 preparado, y los requisitos pendientes para una publicación reproducible se registran en [`documentation/ESTADO_PUBLICACION_ALPHA7.md`](documentation/ESTADO_PUBLICACION_ALPHA7.md). No se debe considerar alpha.7 publicada hasta integrar y validar su código fuente en esta rama.
+
 ## Documentación
 
 La carpeta `documentation/` contiene auditorías, decisiones de arquitectura y seguimiento de las etapas. Los archivos `CHANGELOG` describen los cambios de cada versión cuando están presentes.
