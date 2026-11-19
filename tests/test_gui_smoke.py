@@ -37,12 +37,13 @@ def test_window_has_dashboard_six_steps_and_usb(window, app):
         "step4",
         "step5",
         "step6",
+        "kiosk_config",
         "usb",
     }
     assert set(window._pages) == expected
-    # dashboard, seis pasos y dos herramientas (gestor y USB) en la barra.
-    assert len(window._nav_buttons) == 9
-    assert window.stack.count() == 9
+    # dashboard, seis pasos, configuración Kiosco y dos herramientas.
+    assert len(window._nav_buttons) == 10
+    assert window.stack.count() == 10
     assert window.combo_ui_mode.count() == 2
     assert window.combo_theme.count() == 2
     assert window._navigate("step1", validate=False)
@@ -200,6 +201,16 @@ def test_collect_config_resuelve_el_motor_del_perfil(window):
     assert config["desktop_user"] == "fedora"
 
 
+def test_collect_config_prioriza_perfil_si_motor_auxiliar_quedo_desactualizado(window):
+    window._project_type = "office"
+    window._build_engine = "kiosk"
+
+    config = window.collect_config()
+
+    assert config["project_type"] == "office"
+    assert config["engine"] == "desktop"
+
+
 def test_stage4_project_type_oficina_selecciona_motor_desktop(window, app):
     window.combo_project_type.setCurrentIndex(
         window.combo_project_type.findData("office")
@@ -350,3 +361,78 @@ def test_custom_distro_shows_enabled_repositories(window):
     )
     assert "2 repositorios habilitados" in window.lbl_repos_status.text()
     assert "fedora — Fedora 44 - x86_64" in window.lbl_repos_status.toolTip()
+
+
+def test_step3_muestra_catalogo_y_servidor_grafico_compatible(window, app):
+    window._project_type = "office"
+    window._build_engine = "desktop"
+    window._desktop_environment = "gnome"
+    window._display_server = "wayland"
+    window.refresh_desktop_environment_fields()
+    app.processEvents()
+
+    assert window.group_kiosk_app.isHidden()
+    assert window.group_software is not None
+    assert window.btn_open_software_manager.text() == "Abrir gestor de software Fedora…"
+    assert not window.group_desktop_env.isHidden()
+    assert window.combo_display_server.findData("wayland") >= 0
+    assert window.combo_display_server.findData("x11") >= 0
+    assert not window.combo_display_server.model().item(
+        window.combo_display_server.findData("x11")
+    ).isEnabled()
+
+    window._desktop_environment = "xfce"
+    window._display_server = "x11"
+    window.refresh_desktop_environment_fields()
+    assert window.combo_display_server.currentData() == "x11"
+    assert not window.combo_display_server.model().item(
+        window.combo_display_server.findData("wayland")
+    ).isEnabled()
+
+
+def test_kiosk_configuration_is_separate_from_desktop_configuration(window, app):
+    kiosk_button = window._nav_buttons["kiosk_config"]
+    assert kiosk_button.isVisible()
+    assert window._navigate("kiosk_config", validate=False)
+    assert window.stack.currentWidget() is window._pages["kiosk_config"]["widget"]
+
+    window.combo_project_type.setCurrentIndex(
+        window.combo_project_type.findData("office")
+    )
+    app.processEvents()
+    assert not kiosk_button.isVisible()
+    assert not window.group_desktop_account.isHidden()
+    assert not window.group_desktop_env.isHidden()
+    assert window.group_kiosk_app.isHidden()
+    assert not window._navigate("kiosk_config", validate=False)
+
+    window.combo_project_type.setCurrentIndex(
+        window.combo_project_type.findData("kiosk")
+    )
+    app.processEvents()
+    assert kiosk_button.isVisible()
+    assert window.group_desktop_account.isHidden()
+    assert not window.group_kiosk_app.isHidden()
+    assert not window.group_kiosk_security.isHidden()
+
+
+def test_installer_branding_remains_available_in_simple_mode(window, app, tmp_path):
+    banner = tmp_path / "banner.png"
+    banner.write_bytes(b"per-project-banner")
+    window.banner_field.path = str(banner)
+    window.banner_field.source_path = str(banner)
+    window._navigate("step4", validate=False)
+    window._apply_ui_mode("simple", confirm=False)
+    app.processEvents()
+    assert not window.group_installer_banner.isHidden()
+    assert not window.group_installer_text.isHidden()
+    assert window.banner_field.path == str(banner)
+
+
+def test_named_profile_id_is_preserved_when_applying_project_defaults(window):
+    window._apply_profile_defaults(
+        "Estación de trabajo de prueba", "office", profile_id="estacion-trabajo"
+    )
+    config = window.collect_config()
+    assert window._active_profile_id == "estacion-trabajo"
+    assert config["profile_id"] == "estacion-trabajo"

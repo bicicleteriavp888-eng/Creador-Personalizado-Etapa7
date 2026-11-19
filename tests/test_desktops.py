@@ -15,6 +15,7 @@ from core.desktops import (
     desktop_environment_keys,
     get_desktop_environment,
     list_desktop_environments,
+    supported_display_servers,
     resolve_desktop_packages,
     validate_group_names,
     validate_package_names,
@@ -59,6 +60,34 @@ def test_catalogo_tiene_los_tres_entornos_y_sus_gestores():
         "xfce",
     }
 
+
+
+def test_servidores_graficos_disponibles_por_escritorio_en_fedora_44():
+    assert supported_display_servers("gnome") == ("wayland",)
+    assert supported_display_servers("kde") == ("wayland",)
+    assert supported_display_servers("xfce") == ("x11",)
+
+
+def test_resolver_rechaza_servidor_grafico_no_disponible():
+    with pytest.raises(DesktopPackageError, match="no ofrece sesión x11"):
+        resolve_desktop_packages("gnome", display_server="x11")
+    with pytest.raises(DesktopPackageError, match="no ofrece sesión wayland"):
+        resolve_desktop_packages("xfce", display_server="wayland")
+
+
+def test_paquetes_de_escritorio_corresponden_al_servidor_grafico():
+    kde_wayland = _entries(resolve_desktop_packages("kde", display_server="wayland"))
+    xfce_x11 = _entries(resolve_desktop_packages("xfce", display_server="x11"))
+    assert "plasma-workspace-wayland" in kde_wayland
+    assert "xorg-x11-server-Xorg" in xfce_x11
+
+
+def test_kickstart_declara_servidor_grafico_seleccionado():
+    kickstart = DesktopKickstartGenerator(
+        _config(desktop_environment="xfce", display_server="x11")
+    ).render()
+    assert "# Servidor gráfico: X11" in kickstart
+    assert "# Sesión seleccionada por el proyecto: X11" in kickstart
 
 def test_catalogo_devuelve_copias_aisladas():
     first = get_desktop_environment("gnome")
@@ -271,3 +300,39 @@ def test_el_perfil_kiosco_conserva_sus_componentes():
     packages = builder._package_lines(builder._resolve_app())
     assert "cage" in packages
     assert "seatd" in packages
+
+
+def test_kickstart_incluye_banner_y_mensaje_personalizados_del_instalador(tmp_path):
+    import base64
+
+    banner = tmp_path / "desktop-installer.png"
+    banner.write_bytes(b"desktop-banner-bytes")
+    welcome = "Bienvenido a TallerArgOS\nInstalación personalizada"
+    kickstart = DesktopKickstartGenerator(
+        _config(installer_banner=str(banner), installer_text=welcome)
+    ).render()
+
+    assert base64.b64encode(b"desktop-banner-bytes").decode("ascii") in kickstart
+    assert base64.b64encode(welcome.encode("utf-8")).decode("ascii") in kickstart
+    assert "/usr/share/anaconda/pixmaps/top-banner.png" in kickstart
+    assert "/usr/share/anaconda/help/welcome.txt" in kickstart
+    assert "/etc/creador-personalizado/installer-message.txt" in kickstart
+    assert not [issue for level, issue in validate_kickstart_content(kickstart) if level == "error"]
+
+
+def test_kickstart_no_incluye_branding_del_instalador_si_anaconda_esta_deshabilitado(tmp_path):
+    banner = tmp_path / "desktop-installer.png"
+    banner.write_bytes(b"desktop-banner-bytes")
+    kickstart = DesktopKickstartGenerator(
+        _config(enable_installer=False, installer_banner=str(banner),
+                installer_text="No debe aparecer")
+    ).render()
+    assert "top-banner.png" not in kickstart
+    assert "installer-message.txt" not in kickstart
+
+
+def test_kickstart_rechaza_banner_de_instalador_inexistente():
+    with pytest.raises(DesktopKickstartError, match="No existe la imagen banner"):
+        DesktopKickstartGenerator(
+            _config(installer_banner="/ruta/inexistente/banner.png")
+        ).render()

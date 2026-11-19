@@ -1,4 +1,4 @@
-"""Paso 3: software (app kiosco, paquetes y multiventana)."""
+"""Paso 3: catálogo de software y selección del escritorio."""
 
 from gui.components import prepare_combo
 from gui.layouts import add_page
@@ -13,31 +13,34 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QInputDialog,
     QVBoxLayout,
     QWidget,
 )
-from core.desktops.environments import get_desktop_environment, list_desktop_environments
+from core.hardware.scanner import scan_hardware, export_hardware_profile, load_hardware_profile
+from core.desktops.environments import (
+    get_desktop_environment,
+    list_desktop_environments,
+    supported_display_servers,
+)
 
 HELP = """
-<p><b>Seleccion de software</b></p>
-<p>La aplicacion principal puede ser Chromium, Firefox o una aplicacion local
-(binario, script, carpeta o RPM). En el modo multiventana, Sway reemplaza a Cage
-y reparte la app principal y la segunda aplicacion en dos espacios de trabajo.</p>
-<p>Los paquetes adicionales deben existir en Fedora 44 y se validan antes de
-compilar. Los grupos comps (por ejemplo <code>@office</code>) se validan por
-separado y se aplican con el motor Fedora Desktop; el motor Kiosco no los
-instala. En modo Simple solo se muestran la aplicacion principal y
-su URL; el resto de las opciones tecnicas queda en modo Avanzado.</p>
-<p>Con el motor Fedora Desktop se elige el escritorio (GNOME, KDE Plasma o
-Xfce) y la cuenta de escritorio; con el motor Kiosco se mantiene el kiosco con
-Cage/Sway y <code>kioskuser</code>.</p>
-<p>La administracion del equipo se realiza por SSH: Sway no incluye barras ni
-terminal. <b>Alt+9</b> abre el configurador de red WiFi.</p>
+<p><b>Software de la distribución</b></p>
+<p>El paso 3 concentra el acceso al catálogo único de software Fedora. Desde
+el gestor se consultan repositorios, paquetes, grupos Comps y dependencias;
+la selección se comparte con el proyecto y con las herramientas.</p>
+<p>En el motor Fedora Desktop se elige GNOME, KDE Plasma o Xfce. El selector
+muestra Wayland o X11 y deshabilita las combinaciones que no están disponibles
+en Fedora 44 para ese escritorio: GNOME y Plasma usan Wayland; Xfce utiliza X11.</p>
+<p>Las opciones de aplicación, Cage/Sway y multiventana del motor Kiosco
+se administran en la página independiente <b>Configuración Kiosco</b>. La
+administración del equipo se realiza por SSH; <b>Alt+9</b> abre el configurador
+ de red WiFi.</p>
 """
 
 
 class SoftwareTabMixin:
-    """Paso 3: software (app kiosco, paquetes y multiventana) (mixin de KioskBuilderGUI)."""
+    """Paso 3: catálogo de software y selección del escritorio."""
 
     def init_tab_software(self):
         tab = QWidget()
@@ -52,6 +55,7 @@ class SoftwareTabMixin:
         self.lbl_compositor.setWordWrap(True)
         env_layout.addWidget(self.lbl_compositor)
         layout.addWidget(group_env)
+        self.group_env = group_env
 
         # Escritorio de la distribucion: solo se muestra con el motor Desktop.
         group_desktop = QGroupBox("Escritorio de la distribución")
@@ -68,8 +72,19 @@ class SoftwareTabMixin:
         self.combo_desktop_env.currentIndexChanged.connect(
             self._on_desktop_environment_changed
         )
+        self.combo_display_server = QComboBox()
+        prepare_combo(self.combo_display_server, 18)
+        self.combo_display_server.setToolTip(
+            "Servidor gráfico de la sesión. Las opciones dependen del escritorio "
+            "y de los paquetes disponibles en Fedora 44."
+        )
+        self.combo_display_server.currentIndexChanged.connect(
+            self._on_display_server_changed
+        )
         desktop_layout.addWidget(self.lbl_desktop_env_description)
         desktop_layout.addWidget(self.combo_desktop_env)
+        desktop_layout.addWidget(QLabel("Servidor gráfico de la sesión:"))
+        desktop_layout.addWidget(self.combo_display_server)
         layout.addWidget(group_desktop)
         self.group_desktop_env = group_desktop
         self.refresh_desktop_environment_fields()
@@ -108,14 +123,28 @@ class SoftwareTabMixin:
         self.lbl_custom_app = QLabel("No seleccionado")
         self.lbl_custom_app.setWordWrap(True)
 
+        # La selección real se administra desde el gestor Fedora compartido.
+        # Estos campos son una vista resumida compatible con la configuración
+        # histórica del proyecto; no son un segundo selector manual.
         self.txt_extra_packages = QLineEdit()
         self.txt_extra_packages.setPlaceholderText(
-            "ej: htop git tmux (separados por espacio, deben existir en Fedora 44)"
+            "Sin paquetes adicionales seleccionados"
         )
-
+        self.txt_extra_packages.setReadOnly(True)
         self.txt_extra_groups = QLineEdit()
         self.txt_extra_groups.setPlaceholderText(
-            "ej: @office @multimedia (grupos comps del motor Desktop)"
+            "Sin grupos Comps seleccionados"
+        )
+        self.txt_extra_groups.setReadOnly(True)
+        self.btn_open_software_manager = QPushButton(
+            "Abrir gestor de software Fedora…"
+        )
+        self.btn_open_software_manager.setToolTip(
+            "Abrir el catálogo único de repositorios, paquetes, grupos Comps "
+            "y resolución de dependencias."
+        )
+        self.btn_open_software_manager.clicked.connect(
+            lambda: self._navigate("custom_distro", validate=False)
         )
         self.txt_extra_groups.setToolTip(
             "Grupos de paquetes Fedora (comps). Se validan como @grupo y se "
@@ -152,8 +181,6 @@ class SoftwareTabMixin:
         app_layout.addRow("URL de inicio:", self.txt_url)
         app_layout.addRow("Ruta de app propia:", custom_row)
         app_layout.addRow("", self.lbl_custom_app)
-        app_layout.addRow("Paquetes adicionales (dnf):", self.txt_extra_packages)
-        app_layout.addRow("Grupos de paquetes (dnf):", self.txt_extra_groups)
         app_layout.addRow(self.check_allow_unsigned_rpms)
         app_layout.addRow(self.check_restart)
         app_layout.addRow(self.check_no_sandbox)
@@ -164,7 +191,51 @@ class SoftwareTabMixin:
         app_hint.setWordWrap(True)
         app_layout.addRow("", app_hint)
 
-        layout.addWidget(group_app)
+        # La configuración de aplicaciones Kiosco vive en una página separada.
+        # Así el paso 3 queda dedicado al gestor Fedora y al escritorio Desktop.
+        self.group_kiosk_app = group_app
+
+        group_software = QGroupBox("Software de la distribución")
+        software_layout = QFormLayout(group_software)
+        software_hint = QLabel(
+            "Elegí paquetes, grupos y dependencias desde el gestor único de "
+            "software Fedora. La selección se comparte con el proyecto y con "
+            "las herramientas."
+        )
+        software_hint.setWordWrap(True)
+        software_layout.addRow("", software_hint)
+        software_layout.addRow("Paquetes seleccionados:", self.txt_extra_packages)
+        software_layout.addRow("Grupos Comps seleccionados:", self.txt_extra_groups)
+        software_layout.addRow("", self.btn_open_software_manager)
+        layout.addWidget(group_software)
+        self.group_software = group_software
+
+        # Diagnóstico del host y perfiles portables: el escáner es de solo
+        # lectura y nunca instala paquetes ni habilita repositorios.
+        group_hardware = QGroupBox("Diagnóstico y perfiles de hardware")
+        hardware_layout = QVBoxLayout(group_hardware)
+        hardware_hint = QLabel(
+            "Analiza PCI/USB del equipo de compilación (lspci -nnk y lsusb), "
+            "sugiere paquetes Fedora y permite guardar/cargar recetas de hardware."
+        )
+        hardware_hint.setWordWrap(True)
+        hardware_layout.addWidget(hardware_hint)
+        hardware_actions = QHBoxLayout()
+        self.btn_scan_hardware = QPushButton("Analizar hardware del equipo")
+        self.btn_scan_hardware.clicked.connect(self.scan_host_hardware)
+        self.btn_export_hardware = QPushButton("Exportar perfil…")
+        self.btn_export_hardware.clicked.connect(self.export_host_hardware_profile)
+        self.btn_import_hardware = QPushButton("Cargar perfil…")
+        self.btn_import_hardware.clicked.connect(self.import_host_hardware_profile)
+        hardware_actions.addWidget(self.btn_scan_hardware)
+        hardware_actions.addWidget(self.btn_export_hardware)
+        hardware_actions.addWidget(self.btn_import_hardware)
+        hardware_layout.addLayout(hardware_actions)
+        self.lbl_hardware_scan = QLabel("Todavía no se analizó el hardware.")
+        self.lbl_hardware_scan.setWordWrap(True)
+        hardware_layout.addWidget(self.lbl_hardware_scan)
+        layout.addWidget(group_hardware)
+        self._last_hardware_scan = None
 
         group_multi = QGroupBox("Segunda aplicacion / Multiventana (Sway)")
         multi_layout = QFormLayout(group_multi)
@@ -243,22 +314,38 @@ class SoftwareTabMixin:
         multi_layout.addRow("Archivo local:", local2_row)
         multi_layout.addRow("", self.lbl_app2_hint)
 
-        layout.addWidget(group_multi)
+        # Página opcional y exclusiva del motor Kiosco. No forma parte del
+        # recorrido Desktop ni modifica el paso 3 solicitado para Fedora.
+        kiosk_page = QWidget()
+        kiosk_layout = QVBoxLayout(kiosk_page)
+        kiosk_layout.addWidget(group_app)
+        kiosk_layout.addWidget(group_multi)
+        kiosk_layout.addStretch(1)
+        add_page(
+            self, "kiosk_config", kiosk_page, "Configuración Kiosco",
+            "Definí la aplicación de inicio y, si lo necesitás, el modo multiventana. "
+            "Estas opciones solo pertenecen al motor Kiosco.",
+            "<p><b>Configuración exclusiva de Kiosco</b></p>"
+            "<p>Elegí Chromium, Firefox o una aplicación propia. La segunda "
+            "aplicación y el cambio de ventana se ejecutan mediante Sway.</p>",
+            step=None,
+        )
 
         self._register_advanced(group_env)
-        self._register_advanced(self.txt_extra_packages, app_layout)
-        self._register_advanced(self.txt_extra_groups, app_layout)
-        self._register_advanced(self.check_allow_unsigned_rpms)
-        self._register_advanced(self.check_restart)
-        self._register_advanced(self.check_no_sandbox)
+        self._register_advanced(self.txt_extra_packages, software_layout)
+        self._register_advanced(self.txt_extra_groups, software_layout)
+        self.group_multi_app = group_multi
         self._register_advanced(group_multi)
+        self._register_advanced(self.check_allow_unsigned_rpms)
+        self._register_advanced(self.check_no_sandbox)
+        self.refresh_desktop_environment_fields()
 
         add_page(
             self,
             "step3",
             tab,
             "Selección de software",
-            "Aplicacion principal, segunda aplicacion y paquetes adicionales.",
+            "Selección de escritorio y servidor gráfico, más el catálogo único de software Fedora.",
             HELP,
             step=3,
         )
@@ -326,23 +413,75 @@ class SoftwareTabMixin:
         if not hasattr(self, "group_desktop_env"):
             return
         self.group_desktop_env.setVisible(visible)
+        advanced = getattr(self, "ui_mode", "advanced") == "advanced"
+        if hasattr(self, "group_env"):
+            self.group_env.setVisible((not visible) and advanced)
+        if hasattr(self, "group_multi_app"):
+            self.group_multi_app.setVisible((not visible) and advanced)
+        if hasattr(self, "group_kiosk_app"):
+            self.group_kiosk_app.setVisible(not visible)
+        if hasattr(self, "_nav_buttons") and "kiosk_config" in self._nav_buttons:
+            self._nav_buttons["kiosk_config"].setVisible(not visible)
         if not visible:
+            if getattr(self, "_current_key", "") == "kiosk_config":
+                self._navigate("step3", validate=False)
             return
         key = str(getattr(self, "_desktop_environment", "gnome") or "gnome")
         index = self.combo_desktop_env.findData(key)
         if index < 0:
             index = 0
             key = str(self.combo_desktop_env.itemData(0) or "gnome")
+        self.combo_desktop_env.blockSignals(True)
         self.combo_desktop_env.setCurrentIndex(index)
+        self.combo_desktop_env.blockSignals(False)
         environment = get_desktop_environment(key)
+        current_server = str(
+            getattr(self, "_display_server", environment["session_type"]) or environment["session_type"]
+        ).lower()
+        options = supported_display_servers(key)
+        self.combo_display_server.blockSignals(True)
+        self.combo_display_server.clear()
+        for server, label in (("wayland", "Wayland"), ("x11", "X11")):
+            self.combo_display_server.addItem(label, server)
+            item = self.combo_display_server.model().item(
+                self.combo_display_server.count() - 1
+            )
+            if server not in options:
+                item.setEnabled(False)
+                item.setToolTip(
+                    f"{label} no está disponible para {environment['name']} "
+                    "en los repositorios Fedora 44 configurados."
+                )
+        if current_server not in options:
+            current_server = environment["session_type"]
+        self.combo_display_server.setCurrentIndex(
+            max(0, self.combo_display_server.findData(current_server))
+        )
+        self.combo_display_server.blockSignals(False)
+        self._display_server = current_server
         self.lbl_desktop_env_description.setText(
             f"{environment['name']} · {environment['session_manager']} · "
-            f"sesion {environment['session_type']}"
+            f"sesión {current_server.upper()}"
         )
 
     def _on_desktop_environment_changed(self, *_args):
         key = str(self.combo_desktop_env.currentData() or "gnome")
         self._desktop_environment = key
+        self.refresh_desktop_environment_fields()
+
+    def _on_display_server_changed(self, *_args):
+        server = str(self.combo_display_server.currentData() or "").lower()
+        if server:
+            self._display_server = server
+            self.refresh_desktop_environment_description()
+
+    def refresh_desktop_environment_description(self):
+        key = str(getattr(self, "_desktop_environment", "gnome") or "gnome")
+        environment = get_desktop_environment(key)
+        server = str(getattr(self, "_display_server", environment["session_type"]))
+        self.lbl_desktop_env_description.setText(
+            f"{environment['name']} · {environment['session_manager']} · sesión {server.upper()}"
+        )
 
     def select_app2_local_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -373,3 +512,91 @@ class SoftwareTabMixin:
         if path:
             self.custom_app_path = path
             self.lbl_custom_app.setText(path)
+
+
+    def scan_host_hardware(self):
+        """Analiza PCI/USB y ofrece agregar solo paquetes base de Fedora."""
+        try:
+            report = scan_hardware()
+            self._last_hardware_scan = report
+            recommendations = report.get("recommendations", [])
+            base = [item["package"] for item in recommendations
+                    if not item.get("requires_external_repo")]
+            manual = [item["package"] for item in recommendations
+                      if item.get("requires_external_repo")]
+            self.lbl_hardware_scan.setText(
+                f"PCI: {len(report.get('pci_devices', []))} · USB: "
+                f"{len(report.get('usb_devices', []))} · "
+                f"Paquetes base sugeridos: {', '.join(base) or 'ninguno'} · "
+                f"Controladores manuales: {', '.join(manual) or 'ninguno'}"
+            )
+            if base:
+                reply = QMessageBox.question(
+                    self, "Recomendaciones de hardware",
+                    "Se detectaron estos paquetes base de Fedora:\n\n"
+                    + ", ".join(base)
+                    + "\n\n¿Querés agregarlos a la selección de software? "
+                    "Los controladores externos no se agregarán automáticamente.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    current = [x for x in self.txt_extra_packages.text().split() if x]
+                    merged = list(dict.fromkeys(current + base))
+                    self.txt_extra_packages.setText(" ".join(merged))
+            QMessageBox.information(
+                self, "Diagnóstico de hardware",
+                report.get("notice", "Análisis terminado.")
+                + ("\n\nControladores de terceros: " + ", ".join(manual)
+                   + ". Requieren revisión manual y repositorio externo."
+                   if manual else "")
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Diagnóstico de hardware", str(exc))
+
+    def export_host_hardware_profile(self):
+        """Guarda selección y diagnóstico en un perfil JSON portable."""
+        try:
+            name, accepted = QInputDialog.getText(
+                self, "Exportar perfil de hardware", "Nombre del perfil:"
+            )
+            if not accepted or not name.strip():
+                return
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Guardar perfil de hardware", name.strip().replace(" ", "-") + ".json",
+                "Perfiles JSON (*.json)"
+            )
+            if not path:
+                return
+            report = self._last_hardware_scan or scan_hardware()
+            selected = [x for x in self.txt_extra_packages.text().split() if x]
+            resolution = self.combo_res.currentData() or "auto"
+            export_hardware_profile(path, report, name, str(resolution), selected)
+            QMessageBox.information(self, "Perfil exportado", f"Perfil guardado en:\n{path}")
+        except Exception as exc:
+            QMessageBox.warning(self, "Exportar perfil", str(exc))
+
+    def import_host_hardware_profile(self):
+        """Carga un perfil y fusiona paquetes validados con la selección actual."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Cargar perfil de hardware", "",
+            "Perfiles JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            profile = load_hardware_profile(path)
+            current = [x for x in self.txt_extra_packages.text().split() if x]
+            merged = list(dict.fromkeys(current + profile.get("selected_packages", [])))
+            self.txt_extra_packages.setText(" ".join(merged))
+            resolution = str(profile.get("resolution") or "auto")
+            for index in range(self.combo_res.count()):
+                if self.combo_res.itemData(index) == resolution:
+                    self.combo_res.setCurrentIndex(index)
+                    break
+            self.lbl_hardware_scan.setText(
+                f"Perfil cargado: {profile.get('name', 'sin nombre')} · "
+                f"{len(profile.get('selected_packages', []))} paquetes."
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Cargar perfil", str(exc))

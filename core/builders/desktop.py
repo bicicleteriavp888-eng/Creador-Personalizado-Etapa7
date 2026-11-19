@@ -73,6 +73,7 @@ class DesktopISOBuilder(KioskISOBuilder):
             f"({self.desktop_generator.environment['name']})..."
         )
         self.desktop_generator.write(self.ks_path, password_hash)
+        self._validate_generated_kickstart()
 
     # -- Mensajes de salida --------------------------------------------------
 

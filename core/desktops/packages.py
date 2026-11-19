@@ -168,6 +168,7 @@ def resolve_desktop_packages(
     boot_mode="dual",
     hardware_modules=None,
     wifi_live_assistant=False,
+    display_server=None,
 ):
     """Resuelve la selección de un entorno de escritorio.
 
@@ -180,6 +181,16 @@ def resolve_desktop_packages(
     solo se aplican cuando se solicitan explícitamente.
     """
     environment = get_desktop_environment(environment_key)
+    selected_display_server = str(
+        display_server or environment["session_type"]
+    ).strip().lower()
+    supported_servers = tuple(environment["supported_display_servers"])
+    if selected_display_server not in supported_servers:
+        raise DesktopPackageError(
+            f"El escritorio {environment['name']} no ofrece sesión "
+            f"{selected_display_server or '(vacía)'} en Fedora 44. "
+            f"Opciones disponibles: {', '.join(supported_servers)}."
+        )
 
     mode = str(boot_mode or "dual").strip().lower()
     if mode not in SUPPORTED_BOOT_MODES:
@@ -203,8 +214,11 @@ def resolve_desktop_packages(
     base_packages = _reject_invalid(BASE_PACKAGES, "paquetes base")
     network_packages = _reject_invalid(NETWORK_PACKAGES, "conectividad")
     admin_packages = _reject_invalid(ADMIN_PACKAGES, "administración")
+    environment_package_names = list(environment["packages"])
+    if environment_key == "kde" and selected_display_server == "wayland":
+        environment_package_names.append("plasma-workspace-wayland")
     environment_packages = _reject_invalid(
-        environment["packages"], f"escritorio {environment['name']}"
+        environment_package_names, f"escritorio {environment['name']}"
     )
     extra = _reject_invalid(extra_packages, "paquetes adicionales")
 
@@ -221,7 +235,7 @@ def resolve_desktop_packages(
     sections = [
         ("Base del sistema", base_groups + base_packages),
         (
-            f"Escritorio {environment['name']} · {environment['session_manager']}",
+            f"Escritorio {environment['name']} · {environment['session_manager']} · {selected_display_server.upper()}",
             environment_groups + environment_packages,
         ),
         ("Red y conectividad", network_packages),

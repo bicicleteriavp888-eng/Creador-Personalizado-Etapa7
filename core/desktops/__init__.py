@@ -10,6 +10,7 @@ from core.desktops.environments import (
     desktop_environment_keys,
     get_desktop_environment,
     list_desktop_environments,
+    supported_display_servers,
 )
 from core.desktops.hardware import (
     HARDWARE_MODULES,

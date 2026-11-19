@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "creador-personalizado"
-version = "3.0.0a4"
+version = "3.0.0a9"
 description = "Constructor profesional de distribuciones Fedora personalizadas"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,5 +32,5 @@ addopts = "-ra"
 [tool.setuptools.data-files]
 "share/creador-personalizado/profiles" = ["profiles/*.json"]
 "share/creador-personalizado/catalog" = ["catalog/*.json"]
-"share/doc/creador-personalizado" = ["README.md", "Prompt_Maestro_Creador-kiosk_2.1.txt"]
+"share/doc/creador-personalizado" = ["README.md"]
 "share/doc/creador-personalizado/documentation" = ["documentation/*.md"]

@@ -9,9 +9,9 @@ HELP = """
 <p>El firewall queda habilitado por defecto y solo permite SSH. SSH permanece
 deshabilitado salvo que lo actives expresamente. Si habilitás SSH sin
 autenticación por contraseña, necesitás una clave pública instalada de antemano.</p>
-<p><code>kioskuser</code> puede usar <code>sudo</code> pidiendo contraseña.
-La opción <code>NOPASSWD</code> es avanzada y reduce la seguridad. También podés
-bloquear las consolas virtuales para que no haya login local.</p>
+<p>La administración local usa el grupo <code>wheel</code>. La opción
+<code>NOPASSWD</code> es avanzada y reduce la seguridad. El bloqueo de consolas
+virtuales es una protección exclusiva del motor Kiosco.</p>
 <p>Los estados de <code>firewalld</code> y <code>sshd</code> corresponden al equipo
 donde corre Creador Personalizado, no a la ISO que se está construyendo.</p>
 """
@@ -54,7 +54,7 @@ class SecurityTabMixin:
         self.lbl_service_state.setWordWrap(True)
         net_layout.addWidget(self.lbl_service_state)
 
-        group_admin = QGroupBox("Privilegios y acceso local")
+        group_admin = QGroupBox("Privilegios sudo (compartido por ambos motores)")
         admin_layout = QVBoxLayout(group_admin)
         self.check_sudo_nopasswd = QCheckBox(
             "Permitir sudo sin contraseña para wheel (menos seguro)"
@@ -63,29 +63,38 @@ class SecurityTabMixin:
         self.check_sudo_nopasswd.setToolTip(
             "Por defecto sudo pide la contraseña de kioskuser. Activá esta opción solo si automatizás tareas administrativas."
         )
+        admin_layout.addWidget(self.check_sudo_nopasswd)
+        self.group_common_privileges = group_admin
+
+        group_kiosk = QGroupBox("Protección del terminal Kiosco")
+        kiosk_layout = QVBoxLayout(group_kiosk)
         self.check_vt = QCheckBox(
             "Bloquear consolas virtuales (deshabilita getty en tty2…tty6)"
         )
         self.check_vt.setChecked(True)
         self.check_vt.setToolTip(
-            "Desactiva los getty y el auto-spawn de VTs. No elimina el cambio de VT a nivel kernel."
+            "Opción exclusiva de Kiosco: desactiva getty y el auto-spawn de VTs. "
+            "No elimina el cambio de VT a nivel kernel."
         )
-        admin_layout.addWidget(self.check_sudo_nopasswd)
-        admin_layout.addWidget(self.check_vt)
+        kiosk_layout.addWidget(self.check_vt)
+        self.group_kiosk_security = group_kiosk
 
         note = QLabel(
-            "root permanece bloqueado. La administración se realiza con kioskuser y sudo. "
-            "Los estados consultados son los servicios del host de compilación."
+            "Los estados consultados corresponden al equipo donde corre Creador Personalizado. "
+            "Las opciones de terminal Kiosco no se aplican a Fedora Desktop."
         )
         note.setObjectName("inlineHint")
         note.setWordWrap(True)
         layout.addWidget(group_net)
         layout.addWidget(group_admin)
+        layout.addWidget(group_kiosk)
         layout.addWidget(note)
         layout.addStretch(1)
 
         self._register_advanced(self.check_ssh_password)
         self._register_advanced(group_admin)
+        self._register_advanced(group_kiosk)
+        self.refresh_project_mode_fields()
         add_page(
             self, "step5", tab, "Seguridad y servicios",
             "Configurá la superficie de acceso, los privilegios y los servicios del sistema.",

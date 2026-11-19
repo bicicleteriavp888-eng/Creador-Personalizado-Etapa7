@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from core.validation.iso_validator import validate_iso_package
+from core.iso.quick_audit import audit_iso_quick
 from core.validation.report_generator import generate_txt_report
 
 
@@ -80,6 +81,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("iso")
     parser.add_argument("--kickstart")
+    parser.add_argument("--quick", action="store_true", help="Auditoría rápida xorriso/GRUB/squashfs, sin QEMU")
     parser.add_argument("--boot-mode", choices=("dual", "uefi"), default="dual",
                         help="Modos requeridos por la configuración de la ISO")
     parser.add_argument("--qemu", action="store_true", help="Intenta arranque BIOS y UEFI")
@@ -87,6 +89,12 @@ def main():
     parser.add_argument("--report-dir", default="./laboratory-reports")
     args = parser.parse_args()
     iso = Path(args.iso).expanduser().resolve()
+    if args.quick:
+        report = audit_iso_quick(str(iso))
+        out = Path(args.report_dir).expanduser().resolve(); out.mkdir(parents=True, exist_ok=True)
+        (out / f"{iso.stem}-quick-audit.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0 if report.get("status") in {"PASS", "WARN"} else 2
     ks = Path(args.kickstart).read_text(encoding="utf-8") if args.kickstart else None
     validation = validate_iso_package(str(iso), ks, ("bios", "uefi") if args.boot_mode == "dual" else ("uefi",))
     validation["status"] = "VALIDATED" if not validation["errors"] and validation["bios_compatible"] else "GENERATED"

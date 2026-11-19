@@ -50,6 +50,9 @@ class DesktopKickstartGenerator:
         self.environment = get_desktop_environment(
             self.config.get("desktop_environment") or "gnome"
         )
+        self.display_server = str(
+            self.config.get("display_server") or self.environment["session_type"]
+        ).strip().lower()
 
         self.release = str(self.config.get("release") or FEDORA_RELEASE).strip()
         self.arch = str(self.config.get("arch") or FEDORA_ARCH).strip()
@@ -124,6 +127,7 @@ class DesktopKickstartGenerator:
             boot_mode=self.boot_mode,
             hardware_modules=self.config.get("hardware_modules"),
             wifi_live_assistant=bool(self.config.get("wifi_live_assistant", False)),
+            display_server=self.display_server,
         )
 
     def render(self, password_hash_value=None):
@@ -144,6 +148,7 @@ class DesktopKickstartGenerator:
             self._graphical_section(),
             self._sudo_section(),
             self._branding_section(),
+            self._installer_branding_section(),
             self._ssh_section(),
             self._firewall_section(),
             self._final_check_section(),
@@ -156,6 +161,7 @@ class DesktopKickstartGenerator:
 # Imagen: {self.iso_name} {self.version}
 # Autor: {self.developer}
 # Entorno: {self.environment['name']} · {self.environment['session_manager']}
+# Servidor gráfico: {self.display_server.upper()}
 # Base: Fedora {self.release} / {self.arch} / {self.boot_mode}
 # Generado: {time.strftime('%Y-%m-%d %H:%M:%S')}
 text
@@ -210,6 +216,11 @@ part / --size 20480 --fstype ext4
     # -- Validación ----------------------------------------------------------
 
     def _validate(self):
+        if self.config.get("auto_install_enabled"):
+            raise DesktopKickstartError(
+                "Anaconda no admite Kickstart automatizado desde Live ISO. "
+                "Usa una ISO Netinstall, estándar o boot.iso."
+            )
         if not RELEASE_PATTERN.fullmatch(self.release):
             raise DesktopKickstartError(
                 f"Versión de Fedora inválida: {self.release or '(vacía)'}"
@@ -322,6 +333,7 @@ printf '%s\\n' '{username}:{password_hash}' | chpasswd -e
         service = self.environment["display_manager_service"]
         return f"""
 # --- Sesión gráfica ---------------------------------------------------------
+# Sesión seleccionada por el proyecto: {self.display_server.upper()}
 systemctl set-default graphical.target
 systemctl enable {service}
 """
@@ -365,6 +377,50 @@ chmod 0644 /etc/os-release
 printf '%s' '{release_b64}' | base64 -d > /etc/system-release
 rm -f /tmp/creador-desktop-name /tmp/creador-desktop-pretty
 """
+
+    def _installer_branding_section(self):
+        """Instala el banner y el texto propios del instalador de este proyecto.
+
+        Los recursos se codifican en Base64 para evitar problemas de quoting
+        en Kickstart y solo se incorporan cuando Anaconda está habilitado.
+        """
+        if not self.enable_installer:
+            return ""
+
+        lines = ["# --- Personalización del instalador Anaconda ----------------------------"]
+        banner = str(self.config.get("installer_banner") or "").strip()
+        welcome = str(self.config.get("installer_text") or "").strip()
+
+        if banner:
+            if not os.path.isfile(banner):
+                raise DesktopKickstartError(
+                    f"No existe la imagen banner del instalador: {banner}"
+                )
+            with open(banner, "rb") as stream:
+                image_data = stream.read()
+            if len(image_data) > 4 * 1024 * 1024:
+                raise DesktopKickstartError(
+                    "La imagen banner del instalador supera los 4 MiB. Usa una imagen más liviana."
+                )
+            encoded_image = base64.b64encode(image_data).decode("ascii")
+            lines.append(f"""
+mkdir -p /usr/share/anaconda/pixmaps /usr/share/pixmaps
+printf '%s' '{encoded_image}' | base64 -d > /usr/share/anaconda/pixmaps/top-banner.png
+cp -f /usr/share/anaconda/pixmaps/top-banner.png /usr/share/anaconda/pixmaps/banner.png
+cp -f /usr/share/anaconda/pixmaps/top-banner.png /usr/share/pixmaps/installer-banner.png
+""")
+
+        if welcome:
+            encoded_text = base64.b64encode(welcome.encode("utf-8")).decode("ascii")
+            lines.append(f"""
+mkdir -p /usr/share/anaconda/help /etc/creador-personalizado
+printf '%s' '{encoded_text}' | base64 -d > /usr/share/anaconda/help/welcome.txt
+printf '%s' '{encoded_text}' | base64 -d > /etc/creador-personalizado/installer-message.txt
+""")
+
+        if len(lines) == 1:
+            return ""
+        return "\n".join(lines)
 
     def _ssh_section(self):
         if not self.enable_ssh:

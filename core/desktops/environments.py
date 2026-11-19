@@ -27,6 +27,7 @@ DESKTOP_ENVIRONMENTS = {
         "display_manager_unit": "gdm",
         "display_manager_service": "gdm.service",
         "session_type": "wayland",
+        "supported_display_servers": ["wayland"],
         "groups": ["@gnome-desktop"],
         "packages": [
             "gdm",
@@ -56,6 +57,8 @@ DESKTOP_ENVIRONMENTS = {
         "display_manager_unit": "sddm",
         "display_manager_service": "sddm.service",
         "session_type": "wayland",
+        # Fedora 44 actualiza Plasma a Wayland-only en las versiones actuales.
+        "supported_display_servers": ["wayland"],
         "groups": ["@kde-desktop"],
         "packages": [
             "sddm",
@@ -83,6 +86,7 @@ DESKTOP_ENVIRONMENTS = {
         "display_manager_unit": "lightdm",
         "display_manager_service": "lightdm.service",
         "session_type": "x11",
+        "supported_display_servers": ["x11"],
         "groups": ["@xfce-desktop"],
         "packages": [
             "lightdm",
@@ -119,6 +123,11 @@ def list_desktop_environments():
         (key, value["name"], value["session_manager"])
         for key, value in DESKTOP_ENVIRONMENTS.items()
     ]
+
+
+def supported_display_servers(environment_key):
+    """Devuelve los servidores gráficos realmente disponibles en Fedora 44."""
+    return tuple(get_desktop_environment(environment_key)["supported_display_servers"])
 
 
 def get_desktop_environment(environment_key):

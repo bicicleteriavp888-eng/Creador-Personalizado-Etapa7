@@ -92,8 +92,10 @@ class InstallerTabMixin:
         layout.addWidget(group_banner)
         layout.addWidget(group_text)
         layout.addStretch(1)
-        self._register_advanced(group_banner)
-        self._register_advanced(group_text)
+        # La personalización de marca pertenece a cada proyecto y debe estar
+        # disponible también en modo Simple, no es una opción técnica avanzada.
+        self.group_installer_banner = group_banner
+        self.group_installer_text = group_text
         add_page(
             self, "step4", tab, "Configuración del instalador",
             "Definí si la ISO incluye Anaconda y personalizá su bienvenida.",
