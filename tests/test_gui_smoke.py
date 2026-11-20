@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from core.repositories.dnf_query import DnfGroup, DnfRepository
@@ -18,7 +19,17 @@ def app():
 
 @pytest.fixture
 def window(app, tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Qt puede cachear QStandardPaths al crear QApplication; cambiar solo
+    # XDG_CONFIG_HOME entre tests no garantiza aislar QSettings. Fijamos
+    # explícitamente el directorio de usuario para cada ventana de prueba.
+    QSettings.setPath(
+        QSettings.Format.NativeFormat,
+        QSettings.Scope.UserScope,
+        str(config_dir),
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir))
     widget = KioskBuilderGUI()
     widget.show()
     app.processEvents()
