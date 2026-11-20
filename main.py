@@ -828,6 +828,9 @@ class KioskBuilderGUI(
         self.lbl_global_status.setText(
             "Modo Simple" if mode == "simple" else "Modo Avanzado"
         )
+        # El cambio de modo de interfaz no debe dejar desincronizada la
+        # navegación específica del motor seleccionado (Kiosco/Desktop).
+        self.refresh_project_mode_fields()
 
     def _advanced_features_active(self):
         return any(
