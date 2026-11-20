@@ -240,6 +240,10 @@ class KioskBuilderGUI(
         self._init_pages()
         self._build_sidebar()
         self._load_settings()
+        # El tipo de proyecto puede restaurarse desde QSettings o desde el
+        # último proyecto. Reaplicar aquí la visibilidad garantiza que los
+        # controles exclusivos de Kiosco reflejen el perfil ya restaurado.
+        self.refresh_project_mode_fields()
         self._apply_theme(self.theme_name)
         self._apply_ui_mode(self.ui_mode, confirm=False)
         self._navigate("dashboard", validate=False)
