@@ -26,6 +26,7 @@ concurrency:
 jobs:
   tests-and-static-audit:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -45,8 +46,11 @@ jobs:
           python -m pip install -e . pytest
       - name: Compilar sintaxis Python
         run: python -m compileall -q core gui scripts main.py
-      - name: Ejecutar pruebas
-        run: pytest -q
+      - name: Ejecutar pruebas con diagnóstico de bloqueos
+        # -vv muestra la prueba exacta en curso; faulthandler vuelca las pilas
+        # de todos los hilos si una prueba queda bloqueada durante 3 minutos.
+        # La suite completa se conserva: no se omiten ni se relajan pruebas.
+        run: python -m pytest -vv -ra --durations=20 -o faulthandler_timeout=180 --tb=short
       - name: Verificar checksums distribuidos
         run: sha256sum -c SHA256SUMS.txt
 
