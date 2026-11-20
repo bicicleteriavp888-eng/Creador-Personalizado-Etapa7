@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_pyproject_uses_new_product_identity_and_keeps_legacy_cli():
     data = tomllib.loads((ROOT / "pyproject.toml").read_text())
     assert data["project"]["name"] == "creador-personalizado"
-    assert data["project"]["version"] == "3.0.0a4"
+    assert data["project"]["version"] == "3.0.0a9"
     scripts = data["project"]["scripts"]
     assert scripts["creador-personalizado"] == "main:main"
     assert scripts["creador-kiosk"] == "main:main"

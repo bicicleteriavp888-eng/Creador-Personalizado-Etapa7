@@ -2,8 +2,11 @@
 
 import os
 from gui.layouts import add_page
+from PySide6.QtCore import QThread, Signal
+from core.cache import cache_info
+from core.iso.quick_audit import audit_iso_quick
 from PySide6.QtWidgets import (
-    QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -18,6 +21,18 @@ cancelar. Al finalizar se guarda la ruta, el tamaño y el SHA-256 de la ISO.</p>
 <p>Una ISO <b>generada</b> no está automáticamente <b>validada</b> ni
 <b>probada</b>. Esas comprobaciones se realizan en las etapas de laboratorio.</p>
 """
+
+
+class IsoQuickAuditWorker(QThread):
+    """Ejecuta la auditoría ISO fuera del hilo de interfaz."""
+    completed = Signal(dict)
+
+    def __init__(self, iso_path, parent=None):
+        super().__init__(parent)
+        self.iso_path = iso_path
+
+    def run(self):
+        self.completed.emit(audit_iso_quick(self.iso_path))
 
 
 class BuildTabMixin:
@@ -51,12 +66,30 @@ class BuildTabMixin:
         self.lbl_validation.setObjectName("cardDetail")
         self.lbl_validation.setWordWrap(True)
         validation_layout.addWidget(self.lbl_validation)
-        actions = QHBoxLayout()
+        actions = QVBoxLayout()
+        action_navigation = QHBoxLayout()
+        action_build = QHBoxLayout()
         self.btn_validate = QPushButton("Validar configuración")
         self.btn_validate.setToolTip(
             "Comprueba las etapas, las dependencias del host y el espacio disponible antes de compilar."
         )
         self.btn_validate.clicked.connect(self.validate_configuration)
+        self.btn_preview_kickstart = QPushButton("Ver Kickstart generado")
+        self.btn_preview_kickstart.clicked.connect(self.preview_kickstart)
+        self.check_qemu_bios = QCheckBox("Probar BIOS Legacy en QEMU al terminar")
+        self.check_qemu_bios.setChecked(False)
+        self.check_qemu_uefi = QCheckBox("Probar UEFI en QEMU al terminar")
+        self.check_qemu_uefi.setChecked(False)
+        self.check_cache_enabled = QCheckBox("Usar caché local persistente (recomendado)")
+        self.check_cache_enabled.setChecked(True)
+        self.check_cache_enabled.setToolTip(
+            "Reutiliza los paquetes/metadatos guardados por livecd-creator. "
+            "La caché se conserva entre compilaciones."
+        )
+        self.btn_cache_info = QPushButton("Estado de la caché")
+        self.btn_cache_info.clicked.connect(self.refresh_cache_info)
+        self.lbl_cache_info = QLabel("Caché persistente: estado sin consultar.")
+        self.lbl_cache_info.setObjectName("inlineHint")
         self.btn_build = QPushButton("Generar imagen ISO")
         self.btn_build.setObjectName("primaryAction")
         self.btn_build.clicked.connect(self.start_build_process)
@@ -66,10 +99,37 @@ class BuildTabMixin:
         )
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel_build)
-        actions.addWidget(self.btn_validate)
-        actions.addWidget(self.btn_build, 1)
-        actions.addWidget(self.btn_cancel)
+        # Separar validación y compilación evita que la fila de cuatro
+        # botones fuerce un ancho mínimo mayor que el viewport de la página.
+        action_navigation.addWidget(self.btn_validate)
+        action_navigation.addWidget(self.btn_preview_kickstart)
+        action_build.addWidget(self.btn_build, 1)
+        action_build.addWidget(self.btn_cancel)
+        actions.addLayout(action_navigation)
+        actions.addLayout(action_build)
         validation_layout.addLayout(actions)
+        validation_layout.addWidget(self.check_cache_enabled)
+        validation_layout.addWidget(self.btn_cache_info)
+        validation_layout.addWidget(self.lbl_cache_info)
+
+        iso_audit_row = QHBoxLayout()
+        self.btn_quick_iso_audit = QPushButton("Auditoría rápida de ISO")
+        self.btn_quick_iso_audit.setToolTip(
+            "Inspecciona el catálogo ISO con xorriso, comprueba GRUB y lista squashfs. No arranca la ISO."
+        )
+        self.btn_quick_iso_audit.clicked.connect(self.quick_audit_last_iso)
+        self.btn_choose_iso_audit = QPushButton("Elegir otra ISO…")
+        self.btn_choose_iso_audit.clicked.connect(self.choose_iso_for_quick_audit)
+        iso_audit_row.addWidget(self.btn_quick_iso_audit)
+        iso_audit_row.addWidget(self.btn_choose_iso_audit)
+        validation_layout.addLayout(iso_audit_row)
+        self.lbl_iso_audit = QLabel("Auditoría ISO: todavía no ejecutada.")
+        self.lbl_iso_audit.setObjectName("inlineHint")
+        self.lbl_iso_audit.setWordWrap(True)
+        validation_layout.addWidget(self.lbl_iso_audit)
+        self._iso_audit_worker = None
+        validation_layout.addWidget(self.check_qemu_bios)
+        validation_layout.addWidget(self.check_qemu_uefi)
 
         group_progress = QGroupBox("Estado de compilación")
         progress_layout = QVBoxLayout(group_progress)
@@ -94,19 +154,63 @@ class BuildTabMixin:
             HELP, step=6,
         )
 
+
+    def quick_audit_last_iso(self):
+        """Audita la última ISO generada, sin bloquear la interfaz."""
+        path = getattr(self, "_last_iso_path", "") or str(
+            self._settings.value("last_iso_path", "") if hasattr(self, "_settings") else ""
+        )
+        if not path or not os.path.isfile(path):
+            QMessageBox.information(self, "Auditoría ISO", "Todavía no hay una ISO generada. Elegí un archivo ISO para auditar.")
+            return
+        self._start_quick_iso_audit(path)
+
+    def choose_iso_for_quick_audit(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Seleccionar imagen ISO", os.path.expanduser("~/ISOs"), "Imágenes ISO (*.iso);;Todos los archivos (*)")
+        if path:
+            self._start_quick_iso_audit(path)
+
+    def _start_quick_iso_audit(self, path):
+        if self._iso_audit_worker is not None and self._iso_audit_worker.isRunning():
+            return
+        self.btn_quick_iso_audit.setEnabled(False)
+        self.btn_choose_iso_audit.setEnabled(False)
+        self.lbl_iso_audit.setText(f"Auditando {os.path.basename(path)}…")
+        self._iso_audit_worker = IsoQuickAuditWorker(path, self)
+        self._iso_audit_worker.completed.connect(self._show_quick_iso_audit)
+        self._iso_audit_worker.finished.connect(self._quick_iso_audit_finished)
+        self._iso_audit_worker.start()
+
+    def _show_quick_iso_audit(self, report):
+        status = report.get("status", "UNAVAILABLE")
+        details = [f"Resultado: {status}"]
+        details.extend(f"✓ {item['name']}" for item in report.get("checks", []) if item.get("status") == "PASS")
+        details.extend(f"✗ {item['name']}" for item in report.get("checks", []) if item.get("status") == "FAIL")
+        details.extend(f"Aviso: {item}" for item in report.get("warnings", []))
+        details.extend(f"Error: {item}" for item in report.get("errors", []))
+        details.append("Esta auditoría no sustituye una prueba de arranque en QEMU o hardware real.")
+        self.lbl_iso_audit.setText("\n".join(details))
+        if hasattr(self, "txt_logs"):
+            self.txt_logs.append("\n[AUDITORÍA ISO] " + " | ".join(details))
+
+    def _quick_iso_audit_finished(self):
+        self.btn_quick_iso_audit.setEnabled(True)
+        self.btn_choose_iso_audit.setEnabled(True)
+
     def refresh_build_summary(self):
         """Refresca el resumen de la configuración antes de compilar."""
         config = self.collect_config()
         engine = str(config.get("engine") or "kiosk")
         environment = str(config.get("desktop_environment") or "—")
         lines = [
-            f"Motor: {engine} · Escritorio: {environment} · Usuario: {config.get('desktop_user') or '—'}",
+            f"Motor: {engine} · Escritorio: {environment} · Servidor: {str(config.get('display_server') or '—').upper()} · Usuario: {config.get('desktop_user') or '—'}",
             f"ISO: {config.get('iso_name') or '—'} {config.get('version') or '—'} · Producto: {config.get('product_name') or 'Fedora Linux'}",
             f"Arranque: {config.get('boot_mode') or '—'} · Resolución: {config.get('resolution') or 'auto'}",
-            f"App: {config.get('app_mode') or '—'} · URL: {config.get('app_url') or '—'}",
             f"Paquetes adicionales: {config.get('extra_packages') or '—'} · Grupos: {config.get('extra_groups') or '—'}",
             f"Firewall: {'ON' if config.get('enable_firewall') else 'OFF'} · SSH: {'ON' if config.get('enable_ssh') else 'OFF'} · Instalador: {'ON' if config.get('enable_installer') else 'OFF'}",
         ]
+        if engine == "kiosk":
+            lines.insert(3, f"App: {config.get('app_mode') or '—'} · URL: {config.get('app_url') or '—'}")
         self.lbl_build_summary.setText("\n".join(lines))
 
     def select_output_dir(self):
@@ -153,3 +257,17 @@ class BuildTabMixin:
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.setText("CANCELANDO…")
         self.worker.cancel_event.set()
+
+
+    def refresh_cache_info(self):
+        """Muestra tamaño y ubicación de la caché persistente."""
+        try:
+            info = cache_info()
+            size_mib = info.get("size_bytes", 0) / (1024 * 1024)
+            self.lbl_cache_info.setText(
+                f"Caché: {info['path']} · "
+                + (f"{size_mib:.1f} MiB ocupados" if info.get("exists") else "todavía no creada")
+                + (f" · {info['error']}" if info.get("error") else "")
+            )
+        except Exception as exc:
+            self.lbl_cache_info.setText(f"No se pudo consultar la caché: {exc}")

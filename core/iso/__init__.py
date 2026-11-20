@@ -1,1 +1,1 @@
-"""Módulo de inspección ISO para Creador-kiosk 2.0."""
+"""Herramientas de inspección y auditoría de imágenes ISO."""

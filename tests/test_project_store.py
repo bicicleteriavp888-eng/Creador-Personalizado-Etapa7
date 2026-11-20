@@ -90,3 +90,29 @@ def test_project_store_keeps_build_output_relative_to_project(tmp_path):
     manifest = json.loads((project_dir / "project.json").read_text())
     assert manifest["config"]["output_dir"] == "builds"
     assert Path(store.load(project_dir)["config"]["output_dir"]) == project_dir / "builds"
+
+
+def test_installer_branding_assets_and_text_are_isolated_per_project(tmp_path):
+    store = ProjectStore(tmp_path / "projects")
+    banner_kiosk = tmp_path / "kiosk-banner.png"
+    banner_desktop = tmp_path / "desktop-banner.png"
+    banner_kiosk.write_bytes(b"kiosk-image")
+    banner_desktop.write_bytes(b"desktop-image")
+
+    kiosk = store.create("Kiosco Marca", "kiosk", {
+        "project_type": "kiosk", "engine": "kiosk",
+        "installer_banner": str(banner_kiosk),
+        "installer_text": "Bienvenido al Kiosco",
+    })
+    desktop = store.create("Desktop Marca", "office", {
+        "project_type": "office", "engine": "desktop",
+        "installer_banner": str(banner_desktop),
+        "installer_text": "Bienvenido al Escritorio",
+    })
+
+    kiosk_loaded = store.load(kiosk["path"])
+    desktop_loaded = store.load(desktop["path"])
+    assert Path(kiosk_loaded["config"]["installer_banner"]).read_bytes() == b"kiosk-image"
+    assert Path(desktop_loaded["config"]["installer_banner"]).read_bytes() == b"desktop-image"
+    assert kiosk_loaded["config"]["installer_text"] == "Bienvenido al Kiosco"
+    assert desktop_loaded["config"]["installer_text"] == "Bienvenido al Escritorio"

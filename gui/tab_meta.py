@@ -20,7 +20,8 @@ para un equipo dedicado, o uno de los perfiles Desktop (<code>oficina</code>,
 Los perfiles Fedora Desktop conservan una contraseña inicial para el usuario
 de escritorio.</p>
 <p>En modo Simple se ocultan las opciones técnicas de distribución base y
-modo de arranque.</p>
+modo de arranque. Las opciones exclusivas de Kiosco se muestran en una página
+independiente cuando el perfil activo corresponde a ese motor.</p>
 """
 
 
@@ -107,6 +108,7 @@ class MetaTabMixin:
         page_layout.addWidget(group_platform)
         page_layout.addWidget(group_account)
         page_layout.addWidget(self.meta_hint)
+        self.group_desktop_account = group_account
         page_layout.addStretch(1)
 
         self._register_advanced(self.combo_base, platform)
@@ -125,6 +127,9 @@ class MetaTabMixin:
         refresh = getattr(self, "refresh_desktop_environment_fields", None)
         if callable(refresh):
             refresh()
+        mode_refresh = getattr(self, "refresh_project_mode_fields", None)
+        if callable(mode_refresh):
+            mode_refresh()
         if hasattr(self, "txt_password"):
             is_kiosk = key == "kiosk"
             self.txt_password.setVisible(not is_kiosk)

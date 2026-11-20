@@ -805,7 +805,9 @@ class CustomDistroTabMixin:
             self.combo_project_type.setCurrentIndex(index)
         self._project_type = key
         self._custom_distro_mode = True
-        self._navigate("step1", validate=False)
+        # El gestor y el asistente comparten la selección. Volvemos al paso 3
+        # para que el usuario continúe el flujo sin saltos inesperados al paso 1.
+        self._navigate("step3", validate=False)
         if self._custom_groups:
             self._set_manager_status(
                 "Selección aplicada. Los grupos Comps se instalarán con el "
@@ -813,8 +815,8 @@ class CustomDistroTabMixin:
             )
         else:
             self._set_manager_status(
-                "Selección Fedora aplicada. El perfil elegido define el motor "
-                "de imagen; completá la identidad y las opciones antes de compilar."
+                "Selección Fedora aplicada al paso 3. El perfil elegido define "
+                "el motor de imagen; continuá con la configuración del asistente."
             )
         if key == "kiosk" and self._custom_groups:
             QMessageBox.warning(

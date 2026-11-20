@@ -166,6 +166,9 @@ def _validate_desktop_software(config):
             enable_ssh=bool(config.get("enable_ssh", False)),
             enable_installer=bool(config.get("enable_installer", True)),
             boot_mode=config.get("boot_mode") or "dual",
+            display_server=config.get("display_server"),
+            hardware_modules=config.get("hardware_modules"),
+            wifi_live_assistant=bool(config.get("wifi_live_assistant", False)),
         )
     except (DesktopPackageError, UnknownDesktopEnvironmentError) as exc:
         issues.append(Issue(3, "Selección de software no válida", str(exc)))
@@ -218,6 +221,12 @@ def validate_software(config):
 
 def validate_installer(config):
     issues = []
+    if config.get("auto_install_enabled"):
+        issues.append(Issue(
+            4, "Kickstart desatendido no compatible con Live ISO",
+            "Anaconda no admite Kickstart automatizado desde Live ISO. "
+            "Usa una ISO Netinstall, estándar o boot.iso."
+        ))
     problem = _check_image(config.get("installer_banner"), MAX_PLYMOUTH_BYTES, "banner del instalador")
     if problem:
         issues.append(Issue(4, *problem))

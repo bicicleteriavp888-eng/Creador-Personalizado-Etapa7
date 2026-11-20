@@ -24,6 +24,7 @@ from core.processes import runner as process_runner
 from core.history import BuildHistory
 from core.security.allowlist import validate_packages_list
 from core.security.rpm_verifier import verify_rpm_signature
+from core.kickstart.validator import validate_kickstart_file
 
 # --- Constantes de la receta -------------------------------------------------
 
@@ -39,7 +40,7 @@ DEFAULT_MIRRORLIST = "https://mirrors.fedoraproject.org/mirrorlist"
 # /var/tmp esta respaldado por disco (a diferencia de /tmp, que en Fedora es
 # tmpfs y consume RAM).
 BUILD_ROOT = "/var/tmp/creador-kiosk"
-CACHE_ROOT = "/var/cache/creador-kiosk"
+CACHE_ROOT = "/var/cache/creador-personalizado"
 DEFAULT_OUTPUT_DIR = "~/ISOs"
 
 MIN_FREE_BYTES = 12 * 1024 ** 3
@@ -171,8 +172,12 @@ class KioskISOBuilder(QObject):
         )
         self.build_root = os.path.dirname(self.work_dir)
         self.cache_dir = (
-            os.environ.get("KIOSK_CACHE_DIR") or CACHE_ROOT
+            self.config.get("cache_dir")
+            or os.environ.get("CREADOR_CACHE_DIR")
+            or os.environ.get("KIOSK_CACHE_DIR")
+            or CACHE_ROOT
         ).rstrip("/")
+        self.cache_enabled = bool(self.config.get("cache_enabled", True))
         self.ks_path = os.path.join(self.work_dir, "kiosk.ks")
         self.log_path = os.path.join(self.work_dir, "kiosk-build.log")
 
@@ -1094,6 +1099,22 @@ part / --size 20480 --fstype ext4
         # internos de la receta de compilacion.
         os.chmod(self.ks_path, 0o600)
 
+    def _validate_generated_kickstart(self):
+        """Valida la receta escrita antes de invocar livecd-creator."""
+        report = validate_kickstart_file(
+            self.ks_path, release=str(self.config.get("release") or self.release)
+        )
+        for kind, message in report["issues"]:
+            prefix = "❌" if kind == "error" else "⚠"
+            self.log_signal.emit(f"{prefix} Kickstart: {message}")
+        if not report["ok"]:
+            raise RuntimeError("El Kickstart no superó la validación previa; se canceló la compilación.")
+        if report.get("official"):
+            self.log_signal.emit("✅ ksvalidator aprobó la receta Kickstart.")
+        else:
+            self.log_signal.emit("⚠ Validación estructural interna completada; ksvalidator oficial no disponible.")
+        return report
+
     def _package_lines(self, app, app2=None):
         compositor = "sway" if self.multi_app else "cage"
         base = [
@@ -1492,7 +1513,7 @@ KIOSK_EOF
         if not self.enable_installer:
             return ""
 
-        return r"""
+        script = r"""
 %post --nochroot
 # $LIVE_ROOT lo define livecd-creator para los scripts --nochroot.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -1534,6 +1555,12 @@ if [ -n "$LIVE_ROOT" ]; then
 fi
 %end
 """
+        if self.config.get("auto_install_enabled"):
+            raise RuntimeError(
+                "Kickstart desatendido no es compatible con Live ISO de Anaconda. "
+                "Usa un medio Netinstall, estándar o boot.iso."
+            )
+        return script
 
     def _boot_menu_splash_section(self):
         """Aplica la imagen elegida a los menús BIOS/UEFI del ISO.
@@ -2112,9 +2139,12 @@ KIOSK_EOF
             f"--releasever={self.release}",
             f"--product={self.iso_name}",
             f"--title={self.iso_name}",
-            f"--cache={self.cache_dir}",
             f"--tmpdir={self.tmp_dir}",
         ]
+        if self.cache_enabled:
+            cmd.append(f"--cache={self.cache_dir}")
+        else:
+            self.log_signal.emit("ℹ Caché persistente desactivada para esta compilación.")
 
         self.log_signal.emit("🚀 " + " ".join(shlex.quote(part) for part in cmd))
         self.log_signal.emit(

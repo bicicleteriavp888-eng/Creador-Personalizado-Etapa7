@@ -80,6 +80,7 @@ class AestheticTabMixin:
 
         layout.addWidget(group_splash)
         layout.addWidget(group_display)
+        self.group_kiosk_display = group_display
         layout.addStretch(1)
         self._register_advanced(self.combo_res, display)
         add_page(

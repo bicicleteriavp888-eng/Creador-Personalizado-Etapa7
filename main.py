@@ -1,15 +1,20 @@
 """Creador Personalizado 3.0: constructor de distribuciones Fedora a medida."""
 
+import argparse
+import getpass
 import os
 import re
 import unicodedata
 import sys
 import threading
 import time
+import tempfile
 from datetime import datetime
 
 from PySide6.QtCore import QSettings, QThread, Signal, Qt
 from PySide6.QtWidgets import (
+    QDialog,
+    QPlainTextEdit,
     QAbstractItemView,
     QApplication,
     QComboBox,
@@ -32,6 +37,8 @@ from PySide6.QtWidgets import (
 )
 
 from core.builders import BuildEngineError, resolve_build_engine, resolve_builder_class
+from core.config import BuildConfig, load_project_config
+from core.kickstart.validator import validate_kickstart_file
 from core.projects.manager import ProjectStore
 from core.projects.catalog import (
     get_named_profile_template, get_project_template, list_named_profiles,
@@ -129,7 +136,10 @@ class BuilderWorker(QThread):
 
     def __init__(self, config_data):
         super().__init__()
-        self.config = config_data
+        self.config_model = BuildConfig.from_mapping(config_data)
+        # Se conserva el contrato de diccionario exacto para constructores y
+        # extensiones de terceros; el modelo tipado acompaña la ejecución.
+        self.config = dict(config_data or {})
         # El GUI lo activa para pedirle al backend que aborte el build.
         self.cancel_event = threading.Event()
 
@@ -155,6 +165,24 @@ class BuilderWorker(QThread):
         self.finished_signal.emit(success)
 
 
+class QemuSmokeWorker(QThread):
+    result_signal = Signal(str)
+
+    def __init__(self, iso_path, firmwares):
+        super().__init__()
+        self.iso_path = iso_path
+        self.firmwares = tuple(firmwares)
+
+    def run(self):
+        from core.iso.qemu_smoke import run_qemu_smoke
+        for firmware in self.firmwares:
+            result = run_qemu_smoke(self.iso_path, firmware=firmware)
+            self.result_signal.emit(
+                f"[QEMU {firmware.upper()}] {result.get('status')}: "
+                f"{result.get('error') or ', '.join(result.get('markers', [])) or result.get('note', '')}"
+            )
+
+
 class KioskBuilderGUI(
     MetaTabMixin,
     AestheticTabMixin,
@@ -170,12 +198,14 @@ class KioskBuilderGUI(
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Creador Personalizado 3.0.0-alpha.4 | Fedora Image Studio")
+        self.setWindowTitle("Creador Personalizado 3.0.0-alpha.8 | Fedora Image Studio")
         self.resize(1320, 900)
         self.setMinimumSize(1080, 720)
 
         self.custom_app_path = ""
         self.worker = None
+        self.qemu_worker = None
+        self._last_iso_path = ""
         self.usb_worker = None
         self.hash_worker = None
         self._advanced_widgets = []
@@ -186,9 +216,10 @@ class KioskBuilderGUI(
         self._custom_distro_mode = False
         self._project_type = "kiosk"
         # El flujo guiado para elegir escritorio llega en la etapa 4. Estos
-        # valores permiten que la integración del motor ya sea funcional.
+        # valores mantienen el motor Kiosco como compatibilidad inicial.
         self._build_engine = ""
         self._desktop_environment = "gnome"
+        self._display_server = "wayland"
         self._desktop_user = "fedora"
         self._custom_pkg_worker = None
         self._host_status_worker = None
@@ -209,6 +240,10 @@ class KioskBuilderGUI(
         self._init_pages()
         self._build_sidebar()
         self._load_settings()
+        # El tipo de proyecto puede restaurarse desde QSettings o desde el
+        # último proyecto. Reaplicar aquí la visibilidad garantiza que los
+        # controles exclusivos de Kiosco reflejen el perfil ya restaurado.
+        self.refresh_project_mode_fields()
         self._apply_theme(self.theme_name)
         self._apply_ui_mode(self.ui_mode, confirm=False)
         self._navigate("dashboard", validate=False)
@@ -377,6 +412,7 @@ class KioskBuilderGUI(
 
         for key, label in NAV_ITEMS:
             self._add_nav_button(key, label)
+        self._add_nav_button("kiosk_config", "Configuración Kiosco")
 
         separator = QFrame()
         separator.setObjectName("navSeparator")
@@ -611,6 +647,8 @@ class KioskBuilderGUI(
     def _navigate(self, key, validate=False):
         if key not in self._pages:
             return False
+        if key == "kiosk_config" and self._selected_build_engine() != "kiosk":
+            return False
 
         if validate:
             target = self._step_number(key)
@@ -648,6 +686,11 @@ class KioskBuilderGUI(
         elif key == "usb":
             self.lbl_breadcrumb.setText("Herramientas · Unidad USB")
             self.lbl_wizard_status.setText("Herramienta independiente del asistente")
+        elif key == "kiosk_config":
+            self.lbl_breadcrumb.setText("Kiosco · Configuración exclusiva")
+            self.lbl_wizard_status.setText(
+                "Opciones exclusivas del motor Kiosco · No afectan Fedora Desktop"
+            )
         else:
             self.lbl_breadcrumb.setText(f"Asistente · Paso {step} de 6")
             self.lbl_wizard_status.setText(f"Paso {step} de 6 · {page['title']}")
@@ -785,6 +828,9 @@ class KioskBuilderGUI(
         self.lbl_global_status.setText(
             "Modo Simple" if mode == "simple" else "Modo Avanzado"
         )
+        # El cambio de modo de interfaz no debe dejar desincronizada la
+        # navegación específica del motor seleccionado (Kiosco/Desktop).
+        self.refresh_project_mode_fields()
 
     def _advanced_features_active(self):
         return any(
@@ -806,7 +852,8 @@ class KioskBuilderGUI(
         self.check_vt.setChecked(True)
         self.txt_extra_packages.clear()
         self.txt_extra_groups.clear()
-        self.banner_field.clear()
+        # La identidad visual del instalador es parte del proyecto, no una
+        # preferencia avanzada: no se elimina al cambiar a modo Simple.
         _set_combo_by_data(self.combo_res, "auto")
 
     def _on_mode_changed(self, *args):
@@ -889,22 +936,45 @@ class KioskBuilderGUI(
 
     # -- Configuracion -------------------------------------------------------
     def _selected_build_engine(self):
-        """Motor efectivo de la configuración actual, con Kiosco por defecto."""
+        """Deriva el motor del perfil activo para evitar estados desincronizados.
+
+        ``_build_engine`` es un valor auxiliar usado al cargar perfiles antiguos;
+        el tipo de proyecto es la fuente de verdad de la selección en la GUI.
+        La resolución genérica conserva su prioridad para configuraciones
+        persistidas o llamadas externas al asistente.
+        """
+        project_type = str(getattr(self, "_project_type", "kiosk") or "kiosk")
         try:
-            return resolve_build_engine(
-                {
-                    "engine": self._build_engine,
-                    "project_type": getattr(self, "_project_type", "kiosk"),
-                }
-            )
-        except BuildEngineError:
-            return "kiosk"
+            template = get_project_template(project_type)
+            return resolve_build_engine({"engine": template.get("engine"),
+                                         "project_type": project_type})
+        except (BuildEngineError, ValueError):
+            # Compatibilidad defensiva con proyectos antiguos/desconocidos.
+            try:
+                return resolve_build_engine({"engine": self._build_engine})
+            except BuildEngineError:
+                return "kiosk"
+
+    def refresh_project_mode_fields(self):
+        """Aísla visualmente los controles propios de cada motor."""
+        is_kiosk = self._selected_build_engine() == "kiosk"
+        advanced = getattr(self, "ui_mode", "advanced") == "advanced"
+        if hasattr(self, "group_desktop_account"):
+            self.group_desktop_account.setVisible(not is_kiosk)
+        if hasattr(self, "group_kiosk_security"):
+            self.group_kiosk_security.setVisible(is_kiosk and advanced)
+        if hasattr(self, "group_kiosk_display"):
+            self.group_kiosk_display.setVisible(is_kiosk)
+        if hasattr(self, "_nav_buttons") and "kiosk_config" in self._nav_buttons:
+            self._nav_buttons["kiosk_config"].setVisible(is_kiosk)
+        if not is_kiosk and self._current_key == "kiosk_config":
+            self._navigate("step3", validate=False)
 
     def collect_config(self):
         mode = self.combo_default_app.currentData()
         multi_app = self.check_multi_app.isChecked()
         app2_mode = self.combo_app2.currentData() if multi_app else "chromium"
-        return {
+        values = {
             "iso_name": self.txt_name.text().strip(),
             "version": self.txt_version.text().strip(),
             "developer": self.txt_dev.text().strip(),
@@ -942,6 +1012,7 @@ class KioskBuilderGUI(
             "desktop_environment": getattr(
                 self, "_desktop_environment", "gnome"
             ),
+            "display_server": getattr(self, "_display_server", "wayland"),
             "desktop_user": getattr(self, "_desktop_user", "fedora"),
             "restart_on_crash": self.check_restart.isChecked(),
             "block_vt": self.check_vt.isChecked(),
@@ -951,7 +1022,12 @@ class KioskBuilderGUI(
             "project_name": self._active_project_name,
             "profile_id": self._active_profile_id,
             "profile_name": (get_named_profile_template(self._active_profile_id).get("name", "") if self._active_profile_id else ""),
+            "cache_enabled": getattr(self, "check_cache_enabled", None).isChecked() if getattr(self, "check_cache_enabled", None) else True,
+            "hardware_modules": list(getattr(self, "_hardware_modules", [])),
         }
+        # La GUI conserva el contrato dict para los mixins heredados, pero el
+        # modelo tipado central valida y normaliza la configuración.
+        return BuildConfig.from_mapping(values).to_dict()
 
     def _load_settings(self):
         """Restaura la ultima configuracion usada (nunca la contrasena)."""
@@ -974,6 +1050,8 @@ class KioskBuilderGUI(
         )
         self._desktop_environment = desktop_environment
         _set_combo_by_data(self.combo_desktop_env, desktop_environment)
+        self._display_server = str(settings.value("display_server", "") or "")
+        self.refresh_desktop_environment_fields()
         self.txt_desktop_user.setText(
             str(settings.value("desktop_user", "fedora") or "fedora")
         )
@@ -1046,6 +1124,16 @@ class KioskBuilderGUI(
         self.txt_output.setText(
             str(settings.value("output_dir", self.txt_output.text()))
         )
+        if hasattr(self, "check_cache_enabled"):
+            self.check_cache_enabled.setChecked(
+                _setting_bool(settings, "cache_enabled", True)
+            )
+            self.check_qemu_bios.setChecked(
+                _setting_bool(settings, "qemu_bios", False)
+            )
+            self.check_qemu_uefi.setChecked(
+                _setting_bool(settings, "qemu_uefi", False)
+            )
 
         self.check_enable_installer.setChecked(
             _setting_bool(settings, "enable_installer", True)
@@ -1159,8 +1247,7 @@ class KioskBuilderGUI(
         self._active_project_path = ""
         self._active_project_id = ""
         self._active_project_name = project_name
-        self._active_profile_id = ""
-        self.setWindowTitle(f"Creador Personalizado 3.0.0-alpha.4 | {project_name}")
+        self.setWindowTitle(f"Creador Personalizado 3.0.0-alpha.8 | {project_name}")
         self.txt_name.setText(iso_name)
         self.txt_product_name.setText(project_name)
         self.txt_version.setText(str(defaults.get("version", "1.0.0")))
@@ -1173,6 +1260,7 @@ class KioskBuilderGUI(
         self._build_engine = template.get("engine", "desktop")
         self._desktop_environment = defaults.get("desktop_environment", "gnome")
         _set_combo_by_data(self.combo_desktop_env, self._desktop_environment)
+        self._display_server = str(defaults.get("display_server") or "")
         self.txt_desktop_user.setText(defaults.get("desktop_user", "fedora"))
         _set_combo_by_data(self.combo_default_app, defaults.get("app_mode", "chromium"))
         self.txt_url.setText(defaults.get("app_url", "http://localhost"))
@@ -1219,7 +1307,12 @@ class KioskBuilderGUI(
         self._active_project_id = str(record.get("id") or "")
         self._active_project_name = str(record.get("name") or config.get("project_name") or "Proyecto")
         self._active_profile_id = str(config.get("profile_id") or record.get("profile_id") or "")
-        self.setWindowTitle(f"Creador Personalizado 3.0.0-alpha.4 | {self._active_project_name}")
+        self.setWindowTitle(f"Creador Personalizado 3.0.0-alpha.8 | {self._active_project_name}")
+        if "installer_text" not in config:
+            self.txt_installer_text.setPlainText(
+                f"Bienvenido a {self._active_project_name}.\n"
+                "Esta distribución está basada en Fedora y fue preparada con Creador Personalizado."
+            )
         self.txt_password.clear()
         # Aplicar primero el tipo/motor para que los controles dependientes se actualicen.
         project_type = str(config.get("project_type") or record.get("project_type") or "custom")
@@ -1233,12 +1326,14 @@ class KioskBuilderGUI(
                     widget.setPlainText(str(config[key] or ""))
                 else:
                     widget.setText(str(config[key] or ""))
-        for key, combo in (("release", self.combo_base), ("boot_mode", self.combo_boot), ("resolution", self.combo_res), ("app_mode", self.combo_default_app), ("app2_mode", self.combo_app2), ("desktop_environment", self.combo_desktop_env)):
+        for key, combo in (("release", self.combo_base), ("boot_mode", self.combo_boot), ("resolution", self.combo_res), ("app_mode", self.combo_default_app), ("app2_mode", self.combo_app2), ("desktop_environment", self.combo_desktop_env), ("display_server", self.combo_display_server)):
             if key in config:
                 _set_combo_by_data(combo, config[key])
         self._desktop_environment = str(config.get("desktop_environment") or "gnome")
+        self._display_server = str(config.get("display_server") or "")
         self._desktop_user = str(config.get("desktop_user") or "fedora")
-        for key, widget in (("enable_firewall", self.check_firewall), ("enable_ssh", self.check_enable_ssh), ("ssh_password_auth", self.check_ssh_password), ("sudo_nopasswd", self.check_sudo_nopasswd), ("chromium_no_sandbox", self.check_no_sandbox), ("allow_unsigned_rpms", self.check_allow_unsigned_rpms), ("restart_on_crash", self.check_restart), ("block_vt", self.check_vt), ("multi_app", self.check_multi_app), ("enable_installer", self.check_enable_installer)):
+        self.check_enable_installer.setChecked(bool(config.get("enable_installer", True)))
+        for key, widget in (("enable_firewall", self.check_firewall), ("enable_ssh", self.check_enable_ssh), ("ssh_password_auth", self.check_ssh_password), ("sudo_nopasswd", self.check_sudo_nopasswd), ("chromium_no_sandbox", self.check_no_sandbox), ("allow_unsigned_rpms", self.check_allow_unsigned_rpms), ("restart_on_crash", self.check_restart), ("block_vt", self.check_vt), ("multi_app", self.check_multi_app)):
             if key in config:
                 widget.setChecked(bool(config[key]))
         if "output_dir" in config:
@@ -1263,6 +1358,7 @@ class KioskBuilderGUI(
         self._refresh_pending_table()
         self._settings.setValue("last_project_path", self._active_project_path)
         self.refresh_desktop_environment_fields()
+        self.refresh_project_mode_fields()
         self._update_project_description()
 
     def _save_settings(self):
@@ -1297,6 +1393,9 @@ class KioskBuilderGUI(
             "desktop_environment", str(getattr(self, "_desktop_environment", "gnome") or "gnome")
         )
         settings.setValue(
+            "display_server", str(getattr(self, "_display_server", "") or "")
+        )
+        settings.setValue(
             "desktop_user", str(getattr(self, "_desktop_user", "fedora") or "fedora")
         )
         settings.setValue("restart_on_crash", self.check_restart.isChecked())
@@ -1310,6 +1409,9 @@ class KioskBuilderGUI(
         settings.setValue("app2_path", self.app2_local_path)
         settings.setValue("output_dir", self.txt_output.text())
         settings.setValue("enable_installer", self.check_enable_installer.isChecked())
+        settings.setValue("cache_enabled", self.check_cache_enabled.isChecked())
+        settings.setValue("qemu_bios", self.check_qemu_bios.isChecked())
+        settings.setValue("qemu_uefi", self.check_qemu_uefi.isChecked())
         settings.setValue("installer_text", self.txt_installer_text.toPlainText())
         settings.setValue("plymouth_image", self.plymouth_field.path)
         settings.setValue("installer_banner", self.banner_field.path)
@@ -1637,6 +1739,50 @@ class KioskBuilderGUI(
         )
 
     # -- Compilacion ---------------------------------------------------------
+    def preview_kickstart(self):
+        """Genera una receta temporal, la valida y muestra exactamente su contenido."""
+        try:
+            config = BuildConfig.from_mapping(self.collect_config()).to_dict()
+            builder_class = resolve_builder_class(config)
+            builder = builder_class(config)
+            with tempfile.TemporaryDirectory(prefix="creador-kickstart-preview-") as tmp:
+                builder.work_dir = tmp
+                builder.ks_path = os.path.join(tmp, "preview.ks")
+                if getattr(builder, "engine", "kiosk") == "desktop":
+                    builder.desktop_generator.write(builder.ks_path, "")
+                else:
+                    builder._generate_kickstart("")
+                report = validate_kickstart_file(
+                    builder.ks_path, release=str(config.get("release") or "44")
+                )
+                content = open(builder.ks_path, encoding="utf-8").read()
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Vista previa del Kickstart generado")
+            dialog.resize(900, 700)
+            layout = QVBoxLayout(dialog)
+            status = QLabel(
+                ("Validación oficial ksvalidator" if report.get("official")
+                 else "Validación estructural interna (ksvalidator no disponible)")
+                + (" · CORRECTO" if report["ok"] else " · ERRORES")
+            )
+            layout.addWidget(status)
+            issue_text = "\\n".join(
+                f"{kind.upper()}: {message}" for kind, message in report.get("issues", [])
+            ) or "Sin observaciones."
+            issues_label = QLabel(issue_text)
+            issues_label.setWordWrap(True)
+            layout.addWidget(issues_label)
+            details = QPlainTextEdit()
+            details.setReadOnly(True)
+            details.setPlainText(content)
+            layout.addWidget(details, 1)
+            close = QPushButton("Cerrar")
+            close.clicked.connect(dialog.accept)
+            layout.addWidget(close)
+            dialog.exec()
+        except Exception as exc:
+            QMessageBox.warning(self, "Vista previa Kickstart", str(exc))
+
     def start_build_process(self):
         if self.worker is not None and self.worker.isRunning():
             return
@@ -1675,6 +1821,7 @@ class KioskBuilderGUI(
             self._last_build_error = text.strip()
 
     def on_iso_ready(self, path):
+        self._last_iso_path = path
         self.txt_usb_iso.setText(path)
         self.txt_logs.append(f"\n💽 ISO lista para escribir en USB: {path}")
         try:
@@ -1730,6 +1877,13 @@ class KioskBuilderGUI(
             )
             event.ignore()
             return
+        if self.qemu_worker is not None and self.qemu_worker.isRunning():
+            QMessageBox.warning(
+                self, "Prueba QEMU en curso",
+                "Espera a que termine la prueba de arranque en QEMU."
+            )
+            event.ignore()
+            return
         if self.worker is not None and self.worker.isRunning():
             QMessageBox.warning(
                 self,
@@ -1773,8 +1927,49 @@ class KioskBuilderGUI(
         super().closeEvent(event)
 
 
-def main():
-    app = QApplication(sys.argv)
+def run_headless_build(project_path: str) -> int:
+    """Ejecuta un proyecto guardado sin abrir la interfaz gráfica."""
+    config = load_project_config(project_path)
+    config = BuildConfig.from_mapping(config).to_dict()
+    engine = resolve_build_engine(config)
+    if engine == "desktop" and not config.get("password") and not config.get("password_hash"):
+        config["password"] = getpass.getpass("Contraseña inicial del usuario de escritorio: ")
+    builder_class = resolve_builder_class(config)
+    builder = builder_class(config)
+    builder.log_signal.connect(lambda message: print(message, flush=True))
+    builder.progress_signal.connect(lambda value: print(f"[PROGRESO] {value}%", flush=True))
+    return 0 if builder.build() else 1
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Creador-Personalizado: constructor Fedora Desktop/Kiosco."
+    )
+    parser.add_argument("--build", metavar="PROJECT_JSON",
+                        help="compila un project.json sin abrir la GUI")
+    parser.add_argument("--headless", action="store_true",
+                        help="ejecuta el build en consola (requiere --build)")
+    parser.add_argument("--qemu-smoke", metavar="ISO",
+                        help="ejecuta una prueba de humo QEMU sobre una ISO")
+    parser.add_argument("--firmware", choices=("bios", "uefi"), default="bios",
+                        help="firmware para --qemu-smoke (predeterminado: bios)")
+    parser.add_argument("--qemu-timeout", type=int, default=90,
+                        help="segundos máximos de prueba QEMU")
+    args = parser.parse_args(argv)
+
+    if args.qemu_smoke:
+        from core.iso.qemu_smoke import run_qemu_smoke
+        result = run_qemu_smoke(args.qemu_smoke, args.firmware, args.qemu_timeout)
+        print(result)
+        return 0 if result.get("status") in {"BOOT_MARKER_FOUND", "DISPLAY_ACTIVITY_DETECTED"} else 1
+    if args.build:
+        if not args.headless:
+            parser.error("--build requiere --headless.")
+        return run_headless_build(args.build)
+    if args.headless:
+        parser.error("--headless requiere --build PROJECT_JSON.")
+
+    app = QApplication(sys.argv[:1])
     window = KioskBuilderGUI()
     window.show()
     return app.exec()

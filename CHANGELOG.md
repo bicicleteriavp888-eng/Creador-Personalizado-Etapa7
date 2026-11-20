@@ -125,3 +125,5 @@
 - Se amplía el Prompt Maestro con criterios de aceptación y reglas explícitas para no simular pruebas no ejecutadas.
 - Se añade `scripts/run_acceptance.sh` para ejecutar la matriz reproducible en Fedora y guardar logs.
 - Se documentan límites de validación: sin PySide6 real, ISO de prueba y QEMU no se declara cierre de release.
+
+- [3.0.0-alpha.8](CHANGELOG-3.0.0-alpha.8.md): hardware, Kickstart, caché y laboratorio QEMU.
