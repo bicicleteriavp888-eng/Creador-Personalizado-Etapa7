@@ -2,7 +2,9 @@ name: CI - Creador Personalizado
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - release/3.0.0-alpha.9-integration
   pull_request:
     branches: [main]
   workflow_dispatch:
