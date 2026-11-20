@@ -66,7 +66,9 @@ class BuildTabMixin:
         self.lbl_validation.setObjectName("cardDetail")
         self.lbl_validation.setWordWrap(True)
         validation_layout.addWidget(self.lbl_validation)
-        actions = QHBoxLayout()
+        actions = QVBoxLayout()
+        action_navigation = QHBoxLayout()
+        action_build = QHBoxLayout()
         self.btn_validate = QPushButton("Validar configuración")
         self.btn_validate.setToolTip(
             "Comprueba las etapas, las dependencias del host y el espacio disponible antes de compilar."
@@ -97,10 +99,14 @@ class BuildTabMixin:
         )
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel_build)
-        actions.addWidget(self.btn_validate)
-        actions.addWidget(self.btn_preview_kickstart)
-        actions.addWidget(self.btn_build, 1)
-        actions.addWidget(self.btn_cancel)
+        # Separar validación y compilación evita que la fila de cuatro
+        # botones fuerce un ancho mínimo mayor que el viewport de la página.
+        action_navigation.addWidget(self.btn_validate)
+        action_navigation.addWidget(self.btn_preview_kickstart)
+        action_build.addWidget(self.btn_build, 1)
+        action_build.addWidget(self.btn_cancel)
+        actions.addLayout(action_navigation)
+        actions.addLayout(action_build)
         validation_layout.addLayout(actions)
         validation_layout.addWidget(self.check_cache_enabled)
         validation_layout.addWidget(self.btn_cache_info)
