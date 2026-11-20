@@ -1,4 +1,4 @@
-129c00204e537763b94730b6d2fae91ca515d5efa234d239c5d43f1e965a6e08  ./.github/workflows/ci.yml
+5a19187786435d4aa14f2c35056aa665bb00e4892dac4a4ad7843ed6ecbefde3  ./.github/workflows/ci.yml
 dfe1066b3b9b74e637687cd340027d5a73384e9058e1b0c5cd37e608b4437c06  ./.gitignore
 e62faeca0420cd897f4554f91725f0a0f3b10c94cfa680a1041b74240a40e78b  ./CHANGELOG-2.5.3.txt
 a44ca62aecc96b65dbdd11113115d28b33f24f979a70ac71b87839c3e1d0ce19  ./CHANGELOG-2.5.4.txt
@@ -119,7 +119,7 @@ e9d619ee99e14a551c905a9a6d325161dabff934e456bdb07103c83016c8d97f  ./gui/images.p
 0b0917319eacf487c530e1da045e92c8244edfbc947552ffed09e07742b7a50b  ./gui/layouts.py
 2f2e981bc87739f7fcff9db5f93f594da52ddbc187d0f52c20c584dedff7e642  ./gui/status.py
 b9f5f035b4544dcce59ac09fc2cbf1130ddc09e45feeaeaafb4ce186721fd1f1  ./gui/tab_aesthetic.py
-96b2b6da92bac6578b03e8f96ba8fbe53b9ddbb71958c3e63f0cabf59df19bf3  ./gui/tab_build.py
+b5243b8dcbbb45e92dae2c970cc71b699c8c5d9152e92b8749032ecd14adf621  ./gui/tab_build.py
 7f4b27e24d955e3b17ecb20b54dc3a0af7998558ed4b866efd5c8daee8b17ba1  ./gui/tab_installer.py
 3bc23277e5311d7caf5292b7a40ec485f3cbf347255024f8c7ffa9a03db41c38  ./gui/tab_meta.py
 af891c2a01c7756ce455375129e5b32e88bac26a63e180d215890a995171b8fc  ./gui/tab_security.py
@@ -128,7 +128,7 @@ af891c2a01c7756ce455375129e5b32e88bac26a63e180d215890a995171b8fc  ./gui/tab_secu
 e62e90e2029773d274f7e3a447802365ff4abb1325cf8fc58b8521ac9a8bd6a4  ./gui/theme.py
 579533c3eadcc1cb012bd7c4758f46eada91b2172dcd74e55e36fedb1c305304  ./gui/validation.py
 6a26c4e6fc361811148cb01d05c695d49ac8cd31ab36b1abcff70b2df32696cc  ./install-qwen.sh
-ef73115b25e5ad5b32b59f7bad794555fd079611ca0ce144a43186dcd7f2aa25  ./main.py
+3d4723fdc630ddccc8a11dd7e78aaa3196cd7a6a8721ca366cced5858563d36c  ./main.py
 d4f79ab99e134d8852ab3b3cdf7c72105c10c69f3edacd301e8e692517ccfb02  ./mi_sitio/.bowerrc
 fb601c19bb882f877d21763cca0fd5ced8fca80d393c1a76af2935ff5543e4de  ./mi_sitio/.gitignore
 941b981fecae8c66d72987f7db6ff7781c768a0eea0d846844c82171da74f575  ./mi_sitio/.travis.yml
@@ -221,7 +221,7 @@ fac5c492fde9b0920617ce91c9a2f9ad1fffe5b4fff957066a6b4657589753bf  ./tests/test_b
 57c7d26d362733d186014bb92353deacd458c89eb5b96a4dd60692b608b5a489  ./tests/test_desktops.py
 50048a6f09728301b279cce69703cca0e3ed4878969fa0116bbfebf8d59eca1b  ./tests/test_dnf_query.py
 2460b3342cb351b87db82fe9371ea53346d2443c5ff8acdebf2418a7e94585a1  ./tests/test_gui_redesign.py
-ba09c719720953b3b2ce44ebf59294d4c2071d167e3a8198403714d1b30a8223  ./tests/test_gui_smoke.py
+157919e7ab9fb382ad3fad1f0064717b99f178b6b3126448fb56cbb023e95a06  ./tests/test_gui_smoke.py
 e29ea195dc68fbe3430ddb2299d0c079279bfaa7f53ce4c78c3330dff62d7b9f  ./tests/test_gui_validation.py
 5aef19c6e3ed9511bd562bd592d8b0f6b6c0b2bd90806fafe4f277cbaa40889d  ./tests/test_hardware_modules.py
 98d6172fab092d8a850c25a6d87466fe340ddd0f036977929b53547036973839  ./tests/test_history.py
